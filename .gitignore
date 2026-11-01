@@ -1,0 +1,23 @@
+# Build inputs that are large or machine-local, fetched or produced outside git.
+
+# Kernel build artifacts copied in from the workstation (Image, dtb, defconfig,
+# modules.tar.gz). The kernel itself is tracked in its own repository.
+staging/kernel/
+
+# Built packages.
+debs/
+
+# Vendor image dumps used for forensics; multi-gigabyte and not redistributable.
+images/
+
+# Disk image and loop-mount points.
+debian.img
+mnt/
+
+# Intermediate package trees created by build-debs.sh.
+staging/pkg-*/
+
+# Editor and shell leftovers.
+*~
+*.swp
+.DS_Store
