@@ -1,0 +1,401 @@
+#!/usr/bin/env bash
+#
+# scripts/build-debs.sh — Produces tapas kernel / firmware / device .deb packages.
+#
+# No compilation needed; packages artifacts already present under staging/.
+#
+# Can be run standalone:
+#   cd ~/package && bash scripts/build-debs.sh [all|kernel|firmware|device|image|modules]
+#
+# When invoked from build.sh, ROOT_DIR is inherited from the environment.
+#
+# Input directories (under STAGING):
+#   staging/kernel/   : Image, sm6225-xiaomi-tapas.dtb, sm6225_defconfig, modules.tar.gz
+#   staging/firmware/ : a610_zap.*, ipa_fws.*, a630_sqe.fw, aw87xxx_acf.bin,
+#                       Xiaomi-Redmi-Note-12-4G-tplg.bin,
+#                       From NON-HLOS.bin: adsp.mdt/.b*, cdsp.mdt/.b*, modem.mdt/.b*,
+#                       Via bdencoder: board-2.bin,
+#                       From BTFM.bin: cmbtfw13.tlv, cmnv13t.bin (-> qca/),
+#                       From linux-firmware: firmware-5.bin (ath10k/WCN3990/hw1.0),
+#                       From NON-HLOS /IMAGE/: wlanmdsp.mbn,
+#                       From /vendor/firmware: venus.mbn (-> qcom/venus-6.0/)
+#                       NOTE: firmware-atheros is NOT used; this package replaces
+#                       it (Conflicts: firmware-atheros).
+#   staging/device/   : tapas.conf, tapas-HiFi.conf
+#
+# Output: debs/*.deb (4 files: image, modules, firmware, device)
+#
+set -euo pipefail
+
+ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+
+# ---------------------------------------------------------------- config ---
+# When updating, change ONLY this section.
+KVER="7.3.0-sm6225-upstream+"     # uname -r; must MATCH lib/modules/<KVER> inside modules.tar.gz
+KPKG_VER="7.3.0-1+tapas1"         # linux-image-tapas + linux-modules-tapas Debian package version
+FW_VER="20271019-2+tapas1"       # firmware-xiaomi-tapas Debian package version
+DEV_VER="0.1-1+tapas1"           # device-xiaomi-tapas Debian package version
+DTB="sm6225-xiaomi-tapas.dtb"     # kernel DTB filename
+
+IMGPKG="linux-image-tapas"
+MODPKG="linux-modules-tapas"
+FWPKG="firmware-xiaomi-tapas"
+DEVPKG="device-xiaomi-tapas"
+
+STAGING="${STAGING:-$ROOT_DIR/staging}"
+OUT="${OUT:-$ROOT_DIR/debs}"
+MAINTAINER="${MAINTAINER:-Onur BÜBER <onurbuber@engineer.com>}"
+
+# ------------------------------------------------------------- helpers ----
+log() { echo "==> [build-debs] $*"; }
+die() { echo "ERROR: $*" >&2; exit 1; }
+
+need_file() { [[ -f "$1" ]] || die "not found: $1"; }
+
+# Finds the actual KVER inside modules.tar.gz (prevents packaging with wrong KVER).
+detect_kver_in_tarball() {
+    tar tzf "$STAGING/kernel/modules.tar.gz" \
+        | grep -E '^lib/modules/[^/]+/?$' \
+        | head -n1 \
+        | sed -E 's#^lib/modules/([^/]+)/?#\1#'
+}
+
+check_kernel_inputs() {
+    need_file "$STAGING/kernel/Image"
+    need_file "$STAGING/kernel/$DTB"
+    need_file "$STAGING/kernel/sm6225_defconfig"
+    need_file "$STAGING/kernel/modules.tar.gz"
+    local in_tar
+    in_tar="$(detect_kver_in_tarball)"
+    [[ -n "$in_tar" ]] || die "lib/modules/<ver> not found inside modules.tar.gz"
+    [[ "$in_tar" == "$KVER" ]] \
+        || die "KVER mismatch: script KVER=$KVER but tarball contains $in_tar. Update KVER."
+    log "kernel inputs OK (KVER=$KVER)"
+}
+
+# ------------------------------------------ kernel packages (image+modules) ----
+build_image() {
+    check_kernel_inputs
+    local pkgdir="$STAGING/pkg-image"
+    log "preparing image package: $IMGPKG ($KPKG_VER)"
+    rm -rf "$pkgdir"
+    mkdir -p "$pkgdir/DEBIAN" \
+             "$pkgdir/boot/dtbs" \
+             "$pkgdir/usr/lib/linux-image-$KVER/qcom" \
+             "$pkgdir/usr/share/doc/$IMGPKG"
+
+    cp "$STAGING/kernel/Image"            "$pkgdir/boot/vmlinuz-$KVER"
+    cp "$STAGING/kernel/$DTB"             "$pkgdir/boot/dtbs/"
+    cp "$STAGING/kernel/$DTB"             "$pkgdir/usr/lib/linux-image-$KVER/qcom/"
+    cp "$STAGING/kernel/sm6225_defconfig" "$pkgdir/usr/share/doc/$IMGPKG/"
+    # Official Debian location for update-initramfs compression control.
+    cp "$STAGING/kernel/sm6225_defconfig" "$pkgdir/boot/config-$KVER"
+
+    cat > "$pkgdir/DEBIAN/control" <<EOF
+Package: $IMGPKG
+Version: $KPKG_VER
+Section: kernel
+Priority: optional
+Architecture: arm64
+Depends: $MODPKG (= $KPKG_VER), zstd, initramfs-tools
+Maintainer: $MAINTAINER
+Description: Mainline kernel image for Xiaomi Redmi Note 12 4G (tapas, SM6225)
+ Mainline $KVER Image + DTB (modules are in the $MODPKG package).
+ For boot with U-Boot + extlinux.
+EOF
+
+    # Kurulum sonrası initrd oluştur.
+    cat > "$pkgdir/DEBIAN/postinst" <<EOF
+#!/bin/sh
+set -e
+case "\$1" in
+    configure)
+        if command -v update-initramfs >/dev/null 2>&1; then
+            update-initramfs -c -k $KVER || update-initramfs -u -k $KVER || true
+        fi
+        ;;
+esac
+exit 0
+EOF
+    chmod 755 "$pkgdir/DEBIAN/postinst"
+
+    # Paket kaldırılınca /boot/initrd.img-<KVER> dosyasını temizle.
+    cat > "$pkgdir/DEBIAN/postrm" <<EOF
+#!/bin/sh
+set -e
+case "\$1" in
+    remove|purge)
+        rm -f /boot/initrd.img-$KVER
+        ;;
+esac
+exit 0
+EOF
+    chmod 755 "$pkgdir/DEBIAN/postrm"
+
+    mkdir -p "$OUT"
+    dpkg-deb --root-owner-group --build "$pkgdir" "$OUT/${IMGPKG}_${KPKG_VER}_arm64.deb"
+    log "produced: $OUT/${IMGPKG}_${KPKG_VER}_arm64.deb"
+}
+
+build_modules() {
+    check_kernel_inputs
+    local pkgdir="$STAGING/pkg-modules"
+    log "preparing modules package: $MODPKG ($KPKG_VER)"
+    rm -rf "$pkgdir"
+    mkdir -p "$pkgdir/DEBIAN"
+
+    tar xzf "$STAGING/kernel/modules.tar.gz" -C "$pkgdir/"
+
+    cat > "$pkgdir/DEBIAN/control" <<EOF
+Package: $MODPKG
+Version: $KPKG_VER
+Section: kernel
+Priority: optional
+Architecture: arm64
+Maintainer: $MAINTAINER
+Description: Kernel modules for Xiaomi Redmi Note 12 4G (tapas, SM6225)
+ /lib/modules/$KVER (kernel image is in the $IMGPKG package).
+EOF
+
+    cat > "$pkgdir/DEBIAN/postinst" <<EOF
+#!/bin/sh
+set -e
+if command -v depmod >/dev/null 2>&1; then
+  depmod $KVER || true
+fi
+exit 0
+EOF
+    chmod 755 "$pkgdir/DEBIAN/postinst"
+
+    mkdir -p "$OUT"
+    dpkg-deb --root-owner-group --build "$pkgdir" "$OUT/${MODPKG}_${KPKG_VER}_arm64.deb"
+    log "produced: $OUT/${MODPKG}_${KPKG_VER}_arm64.deb"
+}
+
+# kernel = image + modules
+build_kernel() {
+    build_image
+    build_modules
+}
+
+# ----------------------------------------------------- firmware package ----
+build_firmware() {
+    local f
+    for f in a610_zap.mdt a610_zap.elf a610_zap.b00 a610_zap.b01 a610_zap.b02 \
+             ipa_fws.mdt ipa_fws.elf ipa_fws.b00 ipa_fws.b01 ipa_fws.b02 ipa_fws.b03 ipa_fws.b04 \
+             a630_sqe.fw aw87xxx_acf.bin Xiaomi-Redmi-Note-12-4G-tplg.bin \
+             adsp.mdt cdsp.mdt modem.mdt \
+             board-2.bin \
+             firmware-5.bin wlanmdsp.mbn cmbtfw13.tlv cmnv13t.bin \
+             venus.mbn; do
+        need_file "$STAGING/firmware/$f"
+    done
+    # Segment count check for NON-HLOS.bin blobs (guards against silent missing copies).
+    local prefix n
+    for prefix in adsp cdsp modem; do
+        n=$(ls "$STAGING/firmware"/$prefix.b* 2>/dev/null | wc -l)
+        [[ "$n" -gt 0 ]] || die "no segments found: $STAGING/firmware/$prefix.b*"
+        log "$prefix segments: $n files"
+    done
+    local pkgdir="$STAGING/pkg-firmware"
+    log "preparing firmware package: $FWPKG ($FW_VER)"
+    rm -rf "$pkgdir"
+    mkdir -p "$pkgdir/DEBIAN" \
+             "$pkgdir/usr/lib/firmware/qcom/sm6225/XIAOMI/TAPAS" \
+             "$pkgdir/usr/lib/firmware/qcom/sm6225" \
+             "$pkgdir/usr/lib/firmware/qcom/venus-6.0" \
+             "$pkgdir/usr/lib/firmware" \
+             "$pkgdir/usr/lib/firmware/ath10k/WCN3990/hw1.0" \
+             "$pkgdir/usr/lib/firmware/qca" \
+             "$pkgdir/usr/share/initramfs-tools/hooks" \
+             "$pkgdir/usr/share/doc/$FWPKG"
+
+    cp "$STAGING/firmware"/a610_zap.mdt "$STAGING/firmware"/a610_zap.elf \
+       "$STAGING/firmware"/a610_zap.b00 "$STAGING/firmware"/a610_zap.b01 \
+       "$STAGING/firmware"/a610_zap.b02 \
+       "$pkgdir/usr/lib/firmware/qcom/sm6225/XIAOMI/TAPAS/"
+    cp "$STAGING/firmware"/ipa_fws.mdt "$STAGING/firmware"/ipa_fws.elf \
+       "$STAGING/firmware"/ipa_fws.b00 "$STAGING/firmware"/ipa_fws.b01 \
+       "$STAGING/firmware"/ipa_fws.b02 "$STAGING/firmware"/ipa_fws.b03 \
+       "$STAGING/firmware"/ipa_fws.b04 \
+       "$pkgdir/usr/lib/firmware/qcom/sm6225/XIAOMI/TAPAS/"
+    # NON-HLOS.bin blobs: adsp + cdsp + modem (mdt + all b* segments).
+    cp "$STAGING/firmware"/adsp.mdt "$STAGING/firmware"/adsp.b* \
+       "$STAGING/firmware"/cdsp.mdt "$STAGING/firmware"/cdsp.b* \
+       "$STAGING/firmware"/modem.mdt "$STAGING/firmware"/modem.b* \
+       "$pkgdir/usr/lib/firmware/qcom/sm6225/XIAOMI/TAPAS/"
+    # modem_pr/mcfg carrier tree (stock layout verbatim: modem_pr/mcfg/configs/...).
+    # Catalog files (mbn_*.txt) write paths relative to this anchor; not in initrd —
+    # needed by modem after EFS/rmtfs, after pivot.
+    if [ -d "$STAGING/firmware/modem_pr" ]; then
+        cp -r "$STAGING/firmware/modem_pr" \
+            "$pkgdir/usr/lib/firmware/qcom/sm6225/XIAOMI/TAPAS/"
+        log "modem_pr tree: $(find "$pkgdir/usr/lib/firmware/qcom/sm6225/XIAOMI/TAPAS/modem_pr" -type f | wc -l) files"
+    else
+        die "modem_pr missing: $STAGING/firmware/modem_pr (extract from NON-HLOS.bin)"
+    fi
+    # Stock WCN3950 BT firmware from BTFM.bin (replaces firmware-atheros).
+    cp "$STAGING/firmware"/cmbtfw13.tlv "$STAGING/firmware"/cmnv13t.bin \
+       "$pkgdir/usr/lib/firmware/qca/"
+    # WLAN: firmware-5.bin + bdencoder board-2.bin into the ath10k directory.
+    cp "$STAGING/firmware"/firmware-5.bin "$STAGING/firmware"/wlanmdsp.mbn \
+       "$pkgdir/usr/lib/firmware/ath10k/WCN3990/hw1.0/"
+    # wlanmdsp.mbn is not loaded by ath10k; the modem DSP requests it at boot via
+    # tqftpserv as /readonly/firmware/image/wlanmdsp.mbn.  Since tqftpserv only
+    # scans the remoteproc fw directory (alongside modem.mdt), the file must also
+    # exist under qcom/sm6225/XIAOMI/TAPAS/.
+    cp "$STAGING/firmware/wlanmdsp.mbn" \
+       "$pkgdir/usr/lib/firmware/qcom/sm6225/XIAOMI/TAPAS/"
+    # board-2.bin: capped with tapas entries added via bdencoder.
+    cp "$STAGING/firmware/board-2.bin" \
+       "$pkgdir/usr/lib/firmware/ath10k/WCN3990/hw1.0/"
+    cp "$STAGING/firmware/a630_sqe.fw"                          "$pkgdir/usr/lib/firmware/qcom/"
+    cp "$STAGING/firmware/Xiaomi-Redmi-Note-12-4G-tplg.bin"    "$pkgdir/usr/lib/firmware/qcom/sm6225/"
+    cp "$STAGING/firmware/aw87xxx_acf.bin"                      "$pkgdir/usr/lib/firmware/"
+    # Venus video firmware.  The mainline venus driver (qcm2290/SM6225 resources)
+    # requests "qcom/venus-6.0/venus.mbn"; stock ships the same signed blob as
+    # /vendor/firmware/venus.mbn.  It is a single self-contained Xtensa ELF with
+    # all segments embedded, so no .bNN sidecars are needed.
+    cp "$STAGING/firmware/venus.mbn"                            "$pkgdir/usr/lib/firmware/qcom/venus-6.0/"
+
+    # Convert mkinitfs-format list (30-*.files) to an initramfs-tools hook.
+    # Pattern follows qcom-phone-utils's qcom-firmware hook (add_firmware + list).
+    cat > "$pkgdir/usr/share/initramfs-tools/hooks/tapas-firmware" <<'HOOKEOF'
+#!/bin/sh
+set -e
+
+PREREQS=""
+case $1 in
+    prereqs) echo "${PREREQS}"; exit 0;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+# tapas (sm6225/XIAOMI/TAPAS) fixed firmware list.  Single-device package,
+# so no need to read soc/model from cmdline like qcom-firmware does.
+FW_LIST="aw87xxx_acf.bin
+qcom/sm6225/Xiaomi-Redmi-Note-12-4G-tplg.bin
+qcom/a630_sqe.fw
+qcom/venus-6.0/venus.mbn
+qcom/sm6225/XIAOMI/TAPAS/a610_zap.mdt
+qcom/sm6225/XIAOMI/TAPAS/a610_zap.elf
+qcom/sm6225/XIAOMI/TAPAS/a610_zap.b00
+qcom/sm6225/XIAOMI/TAPAS/a610_zap.b01
+qcom/sm6225/XIAOMI/TAPAS/a610_zap.b02
+qcom/sm6225/XIAOMI/TAPAS/ipa_fws.mdt
+qcom/sm6225/XIAOMI/TAPAS/ipa_fws.elf
+qcom/sm6225/XIAOMI/TAPAS/ipa_fws.b00
+qcom/sm6225/XIAOMI/TAPAS/ipa_fws.b01
+qcom/sm6225/XIAOMI/TAPAS/ipa_fws.b02
+qcom/sm6225/XIAOMI/TAPAS/ipa_fws.b03
+qcom/sm6225/XIAOMI/TAPAS/ipa_fws.b04
+qca/cmbtfw13.tlv
+qca/cmnv13t.bin
+ath10k/WCN3990/hw1.0/board-2.bin
+ath10k/WCN3990/hw1.0/firmware-5.bin
+qcom/sm6225/XIAOMI/TAPAS/wlanmdsp.mbn"
+
+# NON-HLOS.bin: adsp + cdsp + modem (mdt + all b* segments).
+for _p in adsp cdsp modem; do
+    FW_LIST="${FW_LIST} qcom/sm6225/XIAOMI/TAPAS/${_p}.mdt"
+    for _s in /lib/firmware/qcom/sm6225/XIAOMI/TAPAS/${_p}.b*; do
+        [ -e "$_s" ] || continue
+        FW_LIST="${FW_LIST} qcom/sm6225/XIAOMI/TAPAS/$(basename "$_s")"
+    done
+done
+
+for fwfile in ${FW_LIST}; do
+    if [ -f "/lib/firmware/updates/${version?}/${fwfile}" ] ||
+       [ -f "/lib/firmware/updates/${fwfile}" ]             ||
+       [ -f "/lib/firmware/${version}/${fwfile}" ]          ||
+       [ -f "/lib/firmware/${fwfile}" ]; then
+        add_firmware "${fwfile}"
+    else
+        echo "I: Ignoring missing firmware ${fwfile}"
+    fi
+done
+HOOKEOF
+    chmod 755 "$pkgdir/usr/share/initramfs-tools/hooks/tapas-firmware"
+
+    cat > "$pkgdir/DEBIAN/control" <<EOF
+Package: $FWPKG
+Version: $FW_VER
+Section: kernel
+Priority: optional
+Architecture: all
+Depends: qrtr-tools, rmtfs, tqftpserv, protection-domain-mapper
+Conflicts: firmware-atheros
+Maintainer: $MAINTAINER
+Description: Proprietary firmware blobs for Xiaomi Redmi Note 12 4G (tapas)
+ GPU zap, IPA, SQE, ADSP, CDSP, modem, Venus video, WCN3990 WLAN
+ (board-2.bin + fw), WCN3950 BT (stock), audio topology and amp firmware
+ for SM6225.
+ Replaces firmware-atheros; cannot be installed together.
+ Includes initramfs-tools hook.
+EOF
+
+    mkdir -p "$OUT"
+    dpkg-deb --root-owner-group --build "$pkgdir" "$OUT/${FWPKG}_${FW_VER}_all.deb"
+    log "produced: $OUT/${FWPKG}_${FW_VER}_all.deb"
+}
+
+# ------------------------------------------------------- device package ----
+build_device() {
+    need_file "$STAGING/device/tapas.conf"
+    need_file "$STAGING/device/tapas-HiFi.conf"
+    local pkgdir="$STAGING/pkg-device"
+    log "preparing device package: $DEVPKG ($DEV_VER)"
+    rm -rf "$pkgdir"
+    mkdir -p "$pkgdir/DEBIAN" \
+             "$pkgdir/usr/share/alsa/ucm2/Qualcomm/sm6225/tapas" \
+             "$pkgdir/usr/share/alsa/ucm2/conf.d/sm6225" \
+             "$pkgdir/usr/share/doc/$DEVPKG"
+
+    cp "$STAGING/device/tapas.conf" "$STAGING/device/tapas-HiFi.conf" \
+       "$pkgdir/usr/share/alsa/ucm2/Qualcomm/sm6225/tapas/"
+    ln -sf ../../Qualcomm/sm6225/tapas/tapas.conf \
+       "$pkgdir/usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf"
+
+    cat > "$pkgdir/DEBIAN/control" <<EOF
+Package: $DEVPKG
+Version: $DEV_VER
+Section: kernel
+Priority: optional
+Architecture: all
+Depends: alsa-ucm-conf, qcom-phone-utils, $FWPKG (= $FW_VER), $IMGPKG (= $KPKG_VER), $MODPKG (= $KPKG_VER)
+Maintainer: $MAINTAINER
+Description: Device files for Xiaomi Redmi Note 12 4G (tapas)
+ ALSA UCM config for SM6225.
+EOF
+
+    mkdir -p "$OUT"
+    dpkg-deb --root-owner-group --build "$pkgdir" "$OUT/${DEVPKG}_${DEV_VER}_all.deb"
+    log "produced: $OUT/${DEVPKG}_${DEV_VER}_all.deb"
+}
+
+# ----------------------------------------------------------------- main ---
+target="${1:-all}"
+case "$target" in
+    all)      build_kernel; build_firmware; build_device ;;
+    kernel)   build_kernel ;;
+    image)    build_image ;;
+    modules)  build_modules ;;
+    firmware) build_firmware ;;
+    device)   build_device ;;
+    -h|--help|help)
+        echo "Usage: $0 [all|kernel|image|modules|firmware|device]"
+        echo "  STAGING=... OUT=... $0 all"
+        exit 0
+        ;;
+    *) die "unknown target: $target (all|kernel|image|modules|firmware|device)" ;;
+esac
+
+log "outputs:"
+ls -lh "$OUT/${IMGPKG}_${KPKG_VER}_arm64.deb" \
+       "$OUT/${MODPKG}_${KPKG_VER}_arm64.deb" \
+       "$OUT/${FWPKG}_${FW_VER}_all.deb" \
+       "$OUT/${DEVPKG}_${DEV_VER}_all.deb" 2>/dev/null || ls -lh "$OUT/"
+log "done."
+
+log "Cleaning up staging package dirs"
+rm -rf "$STAGING/pkg-image" "$STAGING/pkg-modules" "$STAGING/pkg-firmware" "$STAGING/pkg-device"

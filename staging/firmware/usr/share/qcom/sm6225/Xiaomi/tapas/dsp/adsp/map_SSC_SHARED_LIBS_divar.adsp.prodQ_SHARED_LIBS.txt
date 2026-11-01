@@ -1,0 +1,8 @@
+../../ssc/framework/libsns_direct_channel_skel/build/ssc_shared_libs/qdsp6/divar.adsp.prod/libsns_direct_channel_skel.so
+
+../../ssc_drivers/lsm6dso/build/ssc_shared_libs/qdsp6/divar.adsp.prod/lsm6dso_island.so
+
+../../ssc_drivers/lsm6dso/build/ssc_shared_libs/qdsp6/divar.adsp.prod/lsm6dso_normal.so
+
+../../ssc_drivers/lsm6dso/build/ssc_shared_libs/qdsp6/divar.adsp.prod/lsm6dso.so
+
