@@ -17,7 +17,7 @@ Per-topic details, measurements and dead ends live in `issues/`.
 | 1 | Microphone (capture) | **WORKING** — single mic (AMIC1), stereo via workaround | Second mic (AMIC2/ADC2) produces no SoundWire data | Small | `issues/microphone.md` |
 | 2 | Proximity sensor | **PARTIAL** — visible, never changes state | Raw `distance` reported by the DSP is in the 12–17 range; thresholds are 95/50 | Medium, uncertain | `issues/proximity.md` |
 | 3 | Camera | **OPEN** — none of it works | No SM6225 support in mainline CAMSS, no CPAS model | Large | `issues/camera.md` |
-| 4 | Voice call | **OPEN** — not implemented | Firmware exposes only AudioReach VCPM, no legacy APR; mainline has no VCPM graph builder | Large | `issues/voice-call.md` |
+| 4 | Voice call | **OPEN** — UCM verb ready, no call audio | Firmware exposes only AudioReach VCPM, no legacy APR; mainline has no VCPM graph builder. The `Voice Call` verb (single `Call` endpoint plus speaker/headset modifiers) is written and its routing verified, but the DSP voice graph cannot be opened yet | Large | `issues/voice-call.md` |
 
 None of these are regressions. They were either deliberately out of scope for the
 initial port or have no mainline counterpart yet.

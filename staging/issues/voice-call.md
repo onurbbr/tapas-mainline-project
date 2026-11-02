@@ -164,18 +164,62 @@ There is no path where the existing kernel and UCM work is reused
 unchanged: whichever route is taken, a voice graph has to be opened by
 something that does not exist in mainline today.
 
-## 8. What is already in place for when this is picked up
+## 8. What is in place for when this is picked up
 
-- The HiFi verb deliberately keeps the receiver path alive
-  (`RDAC3_MUX = RX3`, `RX_EAR Mode Switch`) even though the Earpiece device
-  is no longer offered to media, so a future voice verb can reuse it.
-- UCM side needs no new mechanism: a Voice Call verb is a normal verb whose
-  Earpiece device drives the codec csets, exactly like HiFi does.
+- The HiFi verb keeps the receiver path alive (`RDAC3_MUX = RX3`,
+  `RX_EAR Mode Switch`) even though the Earpiece device is no longer offered
+  to media, so the voice verb reuses it.
+- A `Voice Call` verb now exists (`tapas-VoiceCall.conf`, registered in
+  `tapas.conf`). It exposes a **single** playback endpoint, `Call`, plus the
+  `Mic` capture endpoint. Speaker and headset are UCM *modifiers* on that one
+  endpoint, so a desktop never lists "Earpiece playback" and "Speaker
+  playback" as separate outputs while a call is running:
+
+  ```
+  set _enadev Call        # start the call endpoint (earpiece by default)
+  set _enamod Speaker     # earpiece -> loudspeaker
+  set _dismod Speaker     # back to the earpiece
+  set _enamod Headphones  # earpiece -> wired headset
+  set _dismod Headphones  # back to the earpiece
+  set _disdev Call        # end the call endpoint
+  ```
+
+  Verified by reading the mixer state back after each step: the earpiece
+  route (`Receiver Switch`, `EAR_RDAC Switch`) and the speaker route
+  (`Speaker Switch`, `AUX_RDAC Switch`) are mutually exclusive, and the
+  headset modifier clears both before powering the HPH path.
+- Call playback uses **MultiMedia2** (`RX_CODEC_DMA_RX_0`), which nothing
+  else opens, so a call and a media stream can coexist. Media keeps
+  MultiMedia1.
 - The ACDB files are already shipped through hexagonrpcd, so the DSP can
   read the VCPM calibration without any packaging change.
 
-## 9. Not verified
+## 9. ACP exposes the voice verb as a card profile
+
+`spa.alsa` turns every UCM verb into a card profile, so `Voice Call` shows
+up next to `HiFi (...)` in the desktop's card configuration. That cannot be
+suppressed from UCM. It is kept harmless by priority: HiFi profiles weigh
+8200-8300, the voice profile 4200, so profile selection picks HiFi unless
+someone asks for the voice verb explicitly.
+
+Selecting it by hand does what it says: the sink becomes "Call audio",
+`MultiMedia2` is routed and the earpiece is powered. WirePlumber then stores
+that choice in `~/.local/state/wireplumber/default-profile` and re-applies
+it on every boot, which looks like "media suddenly plays from the earpiece".
+Deleting that file (or the matching `[default-profile]` line) returns the
+card to HiFi.
+
+`spa.alsa` also prints `Can't match media roles for modifier Speaker` and
+`... for modifier Headphones` at startup. ACP only binds a modifier to a
+media role it knows, and there is no role for "call on the loudspeaker", so
+the modifiers are only reachable through `alsaucm`. A daemon that owns the
+call state would issue those commands itself; nothing in the desktop stack
+does it today.
+
+## 10. Not verified
 
 No call has been placed with any of the above. All statements about the
 firmware are from string scans, device sysfs listings and file format
-parsing. Nothing here has been run on hardware.
+parsing. The UCM verb was exercised with `alsaucm` and `wpctl set-profile`
+and the resulting mixer state was read back, but no call has produced audio
+on this port.
