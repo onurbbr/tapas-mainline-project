@@ -2,7 +2,7 @@
 
 Xiaomi Redmi Note 12 4G (tapas / SM6225) mainline port.
 
-- Kernel branch: `sm6225`, based on `c03c1a14507d` (Linux v7.3), 45 commits
+- Kernel branch: `sm6225`, based on `c03c1a14507d` (Linux v7.3), 46 commits
 - Running kernel on device: `7.3.0-sm6225-upstream+`
 - Distribution: Debian, booting from SD card (Android on the other boot slot)
 
@@ -17,6 +17,7 @@ Per-topic details, measurements and dead ends live in `issues/`.
 | 1 | Microphone (capture) | **WORKING** — single mic (AMIC1), stereo via workaround | Second mic (AMIC2/ADC2) produces no SoundWire data | Small | `issues/microphone.md` |
 | 2 | Proximity sensor | **PARTIAL** — visible, never changes state | Raw `distance` reported by the DSP is in the 12–17 range; thresholds are 95/50 | Medium, uncertain | `issues/proximity.md` |
 | 3 | Camera | **OPEN** — none of it works | No SM6225 support in mainline CAMSS, no CPAS model | Large | `issues/camera.md` |
+| 4 | Voice call | **OPEN** — not implemented | Firmware exposes only AudioReach VCPM, no legacy APR; mainline has no VCPM graph builder | Large | `issues/voice-call.md` |
 
 None of these are regressions. They were either deliberately out of scope for the
 initial port or have no mainline counterpart yet.
