@@ -1,6 +1,6 @@
 # Tapas — microphone / audio capture
 
-**Status:** WORKING (handset and headset microphone) · both PCM channels
+**Status:** WORKING (handset, top and headset microphone)
 **Last updated:** 2026-11-03 · kernel `7.3.0-sm6225-upstream+`, branch `sm6225`
 **Related commits:** 27 (island CODEC DMA), 29 (soundwire resume), 30 (wcd937x
 earpiece), 31 (VA macro 2.1), 32 (AW87XXX), 33 (Tapas sound card)
@@ -181,12 +181,13 @@ instead of a copy of ADC1.
 
 ### 5.4 What the UCM does now
 
-`tapas-HiFi.conf` has four devices: `Speaker`, `Headphones`, `Mic` (AMIC1) and
-`HeadsetMic` (AMIC2, `JackControl "Mic Jack"`, `JackHWMute "Mic"`). Plugging a
-wired headset switches the source to the boom microphone automatically and hides
-the handset microphone, the same way `Headphones` hides `Speaker`.
+`tapas-HiFi.conf` has four devices: `Speaker`, `Headphones`, `Mic` (AMIC1 and
+AMIC3) and `HeadsetMic` (AMIC2, `JackControl "Mic Jack"`, `JackHWMute "Mic"`).
+Plugging a wired headset switches the source to the boom microphone
+automatically and hides the internal microphones, the same way `Headphones`
+hides `Speaker`.
 
-Two details worth keeping:
+Details worth keeping:
 
 * `ADC3 Switch` is never touched. ADC2 and ADC3 share the second slave port and
   its channel mask, so clearing the ADC3 switch also closes the ADC2 data path.
@@ -195,14 +196,85 @@ Two details worth keeping:
   capture switch as a mute control; anything that tears the route down makes the
   profile unsupported, the card falls back to the `off` profile and WirePlumber
   creates a dummy output.
+* `ADC2 MUX` decides which of the two ADC2 inputs is used: `INP3` for the top
+  microphone (internal capture) and `INP2` for the headset boom microphone.
+  They are never enabled at the same time.
 
 ### 5.5 Still open
 
-* The second channel is a duplicate, not an independent signal. That is correct
-  for a mono boom mic; it would need a real second ADC if a stereo headset
-  microphone ever had to be supported.
+* The headset boom microphone is duplicated across both channels because it is a
+  single-channel source on a stereo PCM. That is correct for a mono boom mic; a
+  stereo headset microphone would need a real second ADC.
 * The headset microphone was only checked with the gaming headset (TRRS with a
   boom mic). Nothing else was tested.
+* The third internal microphone input (AMIC4 / ADC3) has never been tried.
+
+### 5.6 Top microphone (AMIC3 / ADC2 on INP3)
+
+The phone has a second internal microphone at the top edge. Like the headset
+boom microphone it is wired to **ADC2**; only the analog input differs:
+
+| microphone | ADC | `ADC2 MUX` | TX macro slot |
+|---|---|---|---|
+| headset boom | ADC2 | `INP2` | `SWR_MIC4` |
+| top (internal) | ADC2 | `INP3` | `SWR_MIC4` |
+
+Confirmed against Android with a stereo ("interview") recording. Snapshotted the
+vendor mixer state before and during the recording; only these changed:
+
+| control | before | during |
+|---|---|---|
+| `ADC2 MUX` | INP2 | **INP3** |
+| `ADC1_MIXER Switch` | Off | **On** |
+| `ADC2_MIXER Switch` | Off | **On** |
+| `TX DEC0 MUX` | MSM_DMIC | **SWR_MIC** |
+| `TX DEC1 MUX` | MSM_DMIC | **SWR_MIC** |
+| `TX SMIC MUX0` | ZERO | **SWR_MIC9** |
+| `TX SMIC MUX1` | ZERO | **SWR_MIC4** |
+| `ADC1 ChMap` | ZERO | SWRM_TX2_CH1 |
+| `TX_AIF1_CAP Mixer DEC0` / `DEC1` | Off / Off | **On / On** |
+| codec `0x300e` / `0x300f` / `0x3010` | 2c / 0c / 2c | **ac / 8c / ac** |
+| codec `0x3022` / `0x3025` (MICB1 / MICB3) | 22 / 22 | **62 / 62** |
+
+So the vendor HAL runs **both** ADCs at once, one per decimator: ADC1 (handset)
+and ADC2 (top). After the recording the state returns to the idle values, so
+nothing is left half-configured.
+
+### 5.7 Both internal microphones run together
+
+That is the behaviour the UCM profile now implements. With no cable plugged in,
+`SectionDevice."Mic"` enables both ADCs, one per decimator, so the stereo
+capture carries the handset microphone on the left channel and the top
+microphone on the right one:
+
+```
+AMIC1 -> ADC1 -> ADC1_OUTPUT --SoundWire--> TX SWR_INPUT0
+      -> TX DEC0 MUX (SWR_MIC) -> TX SMIC MUX0 (SWR_MIC0)
+      -> TX_AIF1_CAP Mixer DEC0 -> hw:0,3 left
+
+AMIC3 -> ADC2 MUX (INP3) -> ADC2 -> ADC2_OUTPUT --SoundWire--> TX SWR_INPUT4
+      -> TX DEC1 MUX (SWR_MIC) -> TX SMIC MUX1 (SWR_MIC4)
+      -> TX_AIF1_CAP Mixer DEC1 -> hw:0,3 right
+```
+
+Plugging a headset with a microphone switches to `HeadsetMic`, which turns
+`ADC1` off, moves `ADC2 MUX` to `INP2` and feeds both decimators from that one
+source, so the two internal microphones stop contributing.
+
+Measurements (no cable plugged in):
+
+| test | left (ADC1) | right (ADC2, INP3) | correlation |
+|---|---|---|---|
+| idle room noise, `arecord -D hw:0,3` | rms 73.7 | rms 58.5 | 0.167 |
+| tapping the **top edge** microphone | rms 48.8 | **rms 11285.1** | -0.018 |
+| `pw-record` through the UCM source | rms 65.1 | rms 30.5 | 0.176 |
+
+The second row is the proof: tapping the top microphone lifts the right channel
+by a factor of ~190 while the left channel stays at room-noise level, and the
+two channels are uncorrelated. Before that test the same setup had already been
+checked with `TX SMIC MUX0 = SWR_MIC4`, where nothing is transmitted, and the
+right channel was exactly zero - so an empty channel had looked like "INP3 is
+dead" rather than "the slot is wrong".
 
 ---
 
