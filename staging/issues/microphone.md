@@ -1,7 +1,7 @@
 # Tapas — microphone / audio capture
 
-**Status:** WORKING (single microphone, mono) · multiple microphones open
-**Last updated:** 2026-11-01 · kernel `7.3.0-sm6225-upstream+`, branch `sm6225`
+**Status:** WORKING (handset and headset microphone) · both PCM channels
+**Last updated:** 2026-11-03 · kernel `7.3.0-sm6225-upstream+`, branch `sm6225`
 **Related commits:** 27 (island CODEC DMA), 29 (soundwire resume), 30 (wcd937x
 earpiece), 31 (VA macro 2.1), 32 (AW87XXX), 33 (Tapas sound card)
 
@@ -119,93 +119,90 @@ ADC2/ADC3/DEC1 enabled).
 
 ---
 
-## 5. Second microphone (AMIC2 / ADC2): workaround in place
+## 5. Second microphone (AMIC2 / ADC2) and the headset boom microphone
 
-### 5.1 What was tried and measured (2026-11-01)
+Status: **WORKING**. For several sessions ADC2 looked dead; the ADC was fine,
+the SoundWire slot was wrong.
 
-The path is described in the device tree:
-
-```
-AMIC2 -> ADC2 MUX (INP2) -> ADC2 -> ADC2_OUTPUT -> TX SWR_INPUT1
-      -> TX SMIC MUX1 (SWR_MIC1) -> TX DEC1 MUX (SWR_MIC)
-      -> TX_AIF1_CAP Mixer DEC1 -> TX_AIF1 CAP
-```
-
-`qcom,tx-port-mapping` was changed from `<1 1 2 3>` (both ADCs on master port 1)
-to **`<1 2 3 4>`** (each ADC on its own master port) in
-`arch/arm64/boot/dts/qcom/sm6225-xiaomi-tapas.dts`. This fixed the cross-talk:
-
-| configuration | left (ADC1) | right (ADC2) |
-|---|---|---|
-| `<1 1 2 3>`, ADC1 only | 60-66 rms | 0.0 |
-| `<1 1 2 3>`, ADC1 + ADC2 | ~5100 rms (hiss) | 0.0 |
-| `<1 2 3 4>`, ADC1 and ADC2 | **60.7 rms (clean)** | 249 rms, one burst then all zero |
-
-So with the new mapping ADC2 no longer corrupts ADC1. But ADC2 itself still
-produces **no audio**: after a single start-up transient (0.2-0.45 s, peak
-~3500) the right channel is exactly 0 for the rest of the capture.
-`ADC2 MUX = INP3` instead of `INP2` makes it dead silent, so `INP2` is the
-correct input.
-
-### 5.2 Everything upstream of the slave port is confirmed good
-
-DAPM during a capture with ADC2 enabled shows the whole chain powered:
+### 5.1 Root cause: the slot number
 
 ```
-ADC2: On in 1 out 1        ADC2_MIXER: On in 1 out 1
-ADC2 MUX: On in 1 out 1    (INP2 -> AMIC2)
-ADC2_OUTPUT: On in 1 out 1 (to TX SWR_INPUT1 and VA SWR_MIC4)
-AMIC2: On in 1 out 1       MIC BIAS2: On in 0 out 0
+SWR_MICn = (master_port - 1) * 4 + (channel - 1)
 ```
 
-SoundWire is symmetric on both sides:
+ADC2 is on SoundWire master port 2 (`qcom,tx-port-mapping = <1 2 3 4>`) and its
+slave port mask is `BIT(0)`, so the master drives channel 1 and the TX macro
+input is **`SWR_MIC4`**, sourced from `TX SWR_INPUT4`. Earlier attempts selected
+`SWR_MIC1` (master port 1, channel 2): nothing is transmitted there, so the
+stream started but every sample was zero. The vendor stack names the same wire
+`ADC2 ChMap = SWRM_TX2_CH2` / `SWR_MIC5` because it configures channel 2; the
+mainline driver derives the channel from the slave port mask, so it lands on
+channel 1 and `SWR_MIC4`.
 
-- Slave DP1 `0x120 CHANNELEN = 1`, DP2 `0x220 CHANNELEN = 1`
-  (bank1 `0x132`/`0x232` = 3, `0x134`/`0x234` = 1 and 2).
-- Master DP1 `0x1124 = 0x1000103` (en_chan = 0x01),
-  DP2 `0x1224 = 0x1000203` (en_chan = 0x02).
+The device tree now carries `"TX SWR_INPUT4", "ADC2_OUTPUT"` (commit
+`3702cc433a15`).
 
-So both ports are enabled, the master enables the right channel, and the codec
-analog block is powered - yet the samples are zero.
+### 5.2 Verified on hardware
 
-Feeding `TX SMIC MUX1` from a DMIC (`TX DEC1 MUX = MSM_DMIC`, `TX DMIC MUX1` =
-DMIC0..DMIC3) produced **byte-identical** right-channel data for all four DMIC
-inputs (348.5 rms, same peak, same nonzero count), i.e. that transient is not
-audio at all but a fixed start-up artifact of DEC1.
+| configuration | result |
+|---|---|
+| ADC2, DEC0, `TX SMIC MUX0 = SWR_MIC4` | rms 382, max 2744, nonzero 235387/240000 - real audio |
+| ADC2, DEC0, `TX SMIC MUX0 = SWR_MIC5` | EIO, 44 bytes |
+| ADC1 (SWR_MIC0) and ADC2 (SWR_MIC4) together | two independent signals, correlation 0.183 |
+| Android reference, same headset | `TX SMIC MUX0 = SWR_MIC5`, `ADC2 MUX = INP2`, boom mic audible |
 
-### 5.3 The DEC1 -> AIF1 -> DMA half of the chain is proven
+`ADC2 MUX` must be `INP2`; `INP3` is not connected to the boom microphone.
 
-Pointing the second decimator at ADC1 instead of ADC2:
+### 5.3 The capture is stereo, the microphone is mono
+
+The boom microphone is a single ADC, so it only fills one SoundWire slot. With
+one decimator enabled the recording was audible on the left channel only, while
+music playback was fine on both sides.
+
+Fix: feed **both** decimators from the same slot.
 
 ```
-TX DEC1 MUX = SWR_MIC, TX SMIC MUX1 = SWR_MIC0, TX_AIF1_CAP Mixer DEC1 = 1
-MultiMedia4 Mixer TX_CODEC_DMA_TX_3 = 1,1
+TX DEC0 MUX = SWR_MIC    TX SMIC MUX0 = SWR_MIC4
+TX DEC1 MUX = SWR_MIC    TX SMIC MUX1 = SWR_MIC4
+TX_AIF1_CAP Mixer DEC0 = 1, DEC1 = 1
 ```
 
-gives a right channel that is a **copy of the left** (correlation 0.9855,
-L rms 62.8 / R rms 64.1). So everything from the TX macro's second decimator
-onwards works; only the ADC2 -> SoundWire source is dead.
+Measured after the change:
 
-### 5.4 Decision: stereo workaround, documented as temporary
+| path | left | right | correlation |
+|---|---|---|---|
+| raw `arecord -D hw:0,3` | rms 277.4 | rms 284.9 | 0.9652 |
+| `pw-record` through the UCM headset source | rms 166.7 | rms 167.0 | 0.9986 |
 
-Both decimators are now fed from `SWR_MIC0` (ADC1). The capture device stays
-stereo (the topology only allows two channels) and both channels carry the same
-signal instead of a silent right channel.
+Both channels carry the same microphone, which is what a mono headset mic on a
+stereo PCM should look like. This is the same trick that was used earlier to
+duplicate DEC0 into DEC1, except that the source is now the real ADC2 data
+instead of a copy of ADC1.
 
-This is a **workaround, not the final design**. The UCM file says so explicitly
-in the `Mic` section header. Replace `TX SMIC MUX1` with `SWR_MIC1` and restore
-`ADC2`/`ADC2_MIXER` once the reason ADC2 produces no SoundWire data is found.
+### 5.4 What the UCM does now
 
-Suspects still open:
+`tapas-HiFi.conf` has four devices: `Speaker`, `Headphones`, `Mic` (AMIC1) and
+`HeadsetMic` (AMIC2, `JackControl "Mic Jack"`, `JackHWMute "Mic"`). Plugging a
+wired headset switches the source to the boom microphone automatically and hides
+the handset microphone, the same way `Headphones` hides `Speaker`.
 
-- the codec's second ADC/data port needs something mainline does not program
-  (vendor DT carries `qcom,tx_swr_ch_map` with per-channel `0x493e00` fields and
-  a vendor-only `ADC1 ChMap` control that mainline does not have);
-- `qcom,micbias2-microvolt = <2800000>` here vs `2700000` in the vendor overlay
-  (all three micbias rails are 2.7 V downstream) - untested, would need a reboot;
-- the top microphone may physically be a DMIC rather than AMIC2; the vendor DT
-  does define `cdc-dmic01-gpios`/`cdc-dmic23-gpios`, but DMIC0..3 all produced
-  the same fixed transient, which points away from a DMIC source as well.
+Two details worth keeping:
+
+* `ADC3 Switch` is never touched. ADC2 and ADC3 share the second slave port and
+  its channel mask, so clearing the ADC3 switch also closes the ADC2 data path.
+* Neither capture device has a `CaptureSwitch` and neither has a
+  `DisableSequence`. ACP probes a UCM profile by opening the PCM and treats the
+  capture switch as a mute control; anything that tears the route down makes the
+  profile unsupported, the card falls back to the `off` profile and WirePlumber
+  creates a dummy output.
+
+### 5.5 Still open
+
+* The second channel is a duplicate, not an independent signal. That is correct
+  for a mono boom mic; it would need a real second ADC if a stereo headset
+  microphone ever had to be supported.
+* The headset microphone was only checked with the gaming headset (TRRS with a
+  boom mic). Nothing else was tested.
 
 ---
 
@@ -254,9 +251,8 @@ regression.
 
 ## 8. Next steps
 
-1. Find out why ADC2 produces no SoundWire data even though the slave port, the
-   master port and the whole codec DAPM chain are enabled (see 5.4 for the
-   suspects). Remove the stereo workaround once solved.
-2. The DSD/third microphone (AMIC4 -> ADC3 -> `TX SWR_INPUT2`) has never been
-   tried.
-3. Speaker protection / ACDB calibration is a separate topic.
+1. The third microphone (AMIC4 -> ADC3 -> `TX SWR_INPUT5` / `SWR_MIC8`) has
+   never been tried; the device tree route is in place but no UCM device uses
+   it.
+2. Speaker protection / ACDB calibration is a separate topic.
+3. Voice call audio is blocked on the DSP side, see `issues/voice-call.md`.

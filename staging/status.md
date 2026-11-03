@@ -2,7 +2,7 @@
 
 Xiaomi Redmi Note 12 4G (tapas / SM6225) mainline port.
 
-- Kernel branch: `sm6225`, based on `c03c1a14507d` (Linux v7.3), 46 commits
+- Kernel branch: `sm6225`, based on `c03c1a14507d` (Linux v7.3), 48 commits
 - Running kernel on device: `7.3.0-sm6225-upstream+`
 - Distribution: Debian, booting from SD card (Android on the other boot slot)
 
@@ -14,7 +14,7 @@ Per-topic details, measurements and dead ends live in `issues/`.
 
 | # | Topic | Status | Blocker | Size | File |
 |---|-------|--------|---------|------|------|
-| 1 | Microphone (capture) | **WORKING** — single mic (AMIC1), stereo via workaround | Second mic (AMIC2/ADC2) produces no SoundWire data | Small | `issues/microphone.md` |
+| 1 | Microphone (capture) | **WORKING** — handset and headset microphone, both PCM channels | Third microphone (ADC3) untested | Small | `issues/microphone.md` |
 | 2 | Proximity sensor | **PARTIAL** — visible, never changes state | Raw `distance` reported by the DSP is in the 12–17 range; thresholds are 95/50 | Medium, uncertain | `issues/proximity.md` |
 | 3 | Camera | **OPEN** — none of it works | No SM6225 support in mainline CAMSS, no CPAS model | Large | `issues/camera.md` |
 | 4 | Voice call | **OPEN** — UCM verb ready, no call audio | Firmware exposes only AudioReach VCPM, no legacy APR; mainline has no VCPM graph builder. The `Voice Call` verb (single `Call` endpoint plus speaker/headset modifiers) is written and its routing verified, but the DSP voice graph cannot be opened yet | Large | `issues/voice-call.md` |
@@ -26,11 +26,11 @@ initial port or have no mainline counterpart yet.
 
 ## 1. Microphone
 
-The handset microphone (AMIC1) **works**. A 4 s capture on `hw:0,3` yields
-768 044 bytes of real audio (`max 19128 min -21698`). Also verified end to end
-through PipeWire with the packaged UCM profile.
+Both microphones **work**: the handset microphone (AMIC1) and the boom
+microphone of a wired headset (AMIC2). The UCM profile switches between them on
+the `Mic Jack` control, the same way `Headphones` takes over from `Speaker`.
 
-Working path:
+Handset path:
 
 ```
 AMIC1 -> ADC1 -> ADC1_OUTPUT --SoundWire--> TX SWR_INPUT0
@@ -39,7 +39,26 @@ AMIC1 -> ADC1 -> ADC1_OUTPUT --SoundWire--> TX SWR_INPUT0
       -> MultiMedia4 Mixer -> hw:0,3
 ```
 
-Five real bugs were fixed along the way:
+Headset path:
+
+```
+AMIC2 -> ADC2 MUX (INP2) -> ADC2 -> ADC2_OUTPUT --SoundWire--> TX SWR_INPUT4
+      -> TX DEC0 MUX (SWR_MIC) -> TX SMIC MUX0 (SWR_MIC4)
+      -> TX DEC1 MUX (SWR_MIC) -> TX SMIC MUX1 (SWR_MIC4)
+      -> TX_AIF1_CAP Mixer DEC0 + DEC1 -> TX_CODEC_DMA_TX_3
+      -> MultiMedia4 Mixer -> hw:0,3
+```
+
+The boom microphone is a single ADC, so both decimators are fed from the same
+SoundWire slot and the stereo PCM carries the microphone on both channels
+(correlation 0.9986). The slot number is
+`SWR_MICn = (master_port - 1) * 4 + (channel - 1)`; ADC2 is on master port 2
+channel 1, which is `SWR_MIC4`. Earlier attempts used `SWR_MIC1`, where nothing
+is transmitted, which is why ADC2 looked dead for several sessions while the
+vendor stack (which configures channel 2 and therefore reads `SWR_MIC5`)
+worked.
+
+Six real bugs were fixed along the way:
 
 1. The UCM profile had no capture section at all, so no userspace tool could
    select the microphone.
@@ -55,25 +74,22 @@ Five real bugs were fixed along the way:
 Separately, the silent `EIO` that made this look unfixable came from PipeWire
 refusing to release the PCM — `pkill` is not enough, `systemctl --user stop` is.
 
-The working settings live in `SectionDevice."Mic"` of `tapas-HiFi.conf`. After
-the UCM profile is applied, the card state must be identical to
-`/root/tapas-alsa-working.state`; this check is how the hiss was found.
+The working settings live in the `Mic` and `HeadsetMic` sections of
+`tapas-HiFi.conf`. After the UCM profile is applied, the card state must be
+identical to `/root/tapas-alsa-working.state`; this check is how the hiss was
+found.
 
-Capture is **stereo, with both channels carrying the handset mic**. This is a
-deliberate workaround: `TX SMIC MUX1` is pointed at `SWR_MIC0` (ADC1) as well,
-so the right channel duplicates the left instead of staying silent. The UCM
-profile and `issues/microphone.md` both flag it as temporary.
+Capture is **stereo**. The handset microphone duplicates DEC0 into DEC1 so the
+right channel carries the same signal, and the headset microphone feeds both
+decimators from its single SoundWire slot for the same reason. A mono sensor on
+a stereo PCM should not lose the right channel.
 
 `qcom,tx-port-mapping` was changed to `<1 2 3 4>` in the Tapas DTS. That is a
 real fix and should be kept: with `<1 1 2 3>` both ADCs were mapped onto master
 port 1 and enabling ADC2 corrupted ADC1's stream (~5100 rms of hiss). With the
 new mapping ADC1 stays clean (60.7 rms) next to ADC2.
 
-**Still open:** ADC2 itself delivers no audio. Its whole DAPM chain powers up,
-slave DP2 and master DP2 are both enabled, yet the right channel is exactly
-zero apart from a fixed start-up transient. Pointing DEC1 at ADC1 gives a
-perfect copy of the left channel (correlation 0.9855), which proves the
-decimator -> AIF1 -> DMA half is fine.
+**Still open:** the third microphone (AMIC4 / ADC3) has never been tried.
 
 ---
 
