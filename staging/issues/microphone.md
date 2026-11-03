@@ -185,7 +185,9 @@ instead of a copy of ADC1.
 AMIC3) and `HeadsetMic` (AMIC2, `JackControl "Mic Jack"`, `JackHWMute "Mic"`).
 Plugging a wired headset switches the source to the boom microphone
 automatically and hides the internal microphones, the same way `Headphones`
-hides `Speaker`.
+hides `Speaker`. Verified on the phone: with a headset plugged in both internal
+microphones go silent and the boom microphone takes over; unplugging it brings
+them back.
 
 Details worth keeping:
 
