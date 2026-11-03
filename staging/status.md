@@ -14,7 +14,7 @@ Per-topic details, measurements and dead ends live in `issues/`.
 
 | # | Topic | Status | Blocker | Size | File |
 |---|-------|--------|---------|------|------|
-| 1 | Microphone (capture) | **WORKING** — handset and headset microphone, both PCM channels | Third microphone (ADC3) untested | Small | `issues/microphone.md` |
+| 1 | Microphone (capture) | **WORKING** — handset + top microphone together, headset microphone on jack | Third microphone input (ADC3) untested | Small | `issues/microphone.md` |
 | 2 | Proximity sensor | **PARTIAL** — visible, never changes state | Raw `distance` reported by the DSP is in the 12–17 range; thresholds are 95/50 | Medium, uncertain | `issues/proximity.md` |
 | 3 | Camera | **OPEN** — none of it works | No SM6225 support in mainline CAMSS, no CPAS model | Large | `issues/camera.md` |
 | 4 | Voice call | **OPEN** — UCM verb ready, no call audio | Firmware exposes only AudioReach VCPM, no legacy APR; mainline has no VCPM graph builder. The `Voice Call` verb (single `Call` endpoint plus speaker/headset modifiers) is written and its routing verified, but the DSP voice graph cannot be opened yet | Large | `issues/voice-call.md` |
@@ -26,17 +26,21 @@ initial port or have no mainline counterpart yet.
 
 ## 1. Microphone
 
-Both microphones **work**: the handset microphone (AMIC1) and the boom
-microphone of a wired headset (AMIC2). The UCM profile switches between them on
-the `Mic Jack` control, the same way `Headphones` takes over from `Speaker`.
+Both internal microphones and the headset boom microphone **work**. They are
+never active at the same time: without a cable the two internal ones capture
+together (one per channel), and plugging a headset with a microphone replaces
+them with the boom microphone.
 
-Handset path:
+Handset + top path, no cable plugged in:
 
 ```
 AMIC1 -> ADC1 -> ADC1_OUTPUT --SoundWire--> TX SWR_INPUT0
       -> TX DEC0 MUX (SWR_MIC) -> TX SMIC MUX0 (SWR_MIC0)
-      -> TX_AIF1_CAP Mixer DEC0 -> TX_CODEC_DMA_TX_3
-      -> MultiMedia4 Mixer -> hw:0,3
+      -> TX_AIF1_CAP Mixer DEC0 -> hw:0,3 left channel
+
+AMIC3 -> ADC2 MUX (INP3) -> ADC2 -> ADC2_OUTPUT --SoundWire--> TX SWR_INPUT4
+      -> TX DEC1 MUX (SWR_MIC) -> TX SMIC MUX1 (SWR_MIC4)
+      -> TX_AIF1_CAP Mixer DEC1 -> hw:0,3 right channel
 ```
 
 Headset path:
@@ -45,19 +49,30 @@ Headset path:
 AMIC2 -> ADC2 MUX (INP2) -> ADC2 -> ADC2_OUTPUT --SoundWire--> TX SWR_INPUT4
       -> TX DEC0 MUX (SWR_MIC) -> TX SMIC MUX0 (SWR_MIC4)
       -> TX DEC1 MUX (SWR_MIC) -> TX SMIC MUX1 (SWR_MIC4)
-      -> TX_AIF1_CAP Mixer DEC0 + DEC1 -> TX_CODEC_DMA_TX_3
-      -> MultiMedia4 Mixer -> hw:0,3
+      -> TX_AIF1_CAP Mixer DEC0 + DEC1 -> hw:0,3 both channels
 ```
 
-The boom microphone is a single ADC, so both decimators are fed from the same
-SoundWire slot and the stereo PCM carries the microphone on both channels
-(correlation 0.9986). The slot number is
-`SWR_MICn = (master_port - 1) * 4 + (channel - 1)`; ADC2 is on master port 2
-channel 1, which is `SWR_MIC4`. Earlier attempts used `SWR_MIC1`, where nothing
-is transmitted, which is why ADC2 looked dead for several sessions while the
-vendor stack (which configures channel 2 and therefore reads `SWR_MIC5`)
-worked.
+Which ADC2 input is used is decided by `ADC2 MUX`: `INP3` is the top
+microphone, `INP2` is the headset boom microphone. The slot number is
+`SWR_MICn = (master_port - 1) * 4 + (channel - 1)`; ADC1 is on master port 1
+channel 1 (`SWR_MIC0`) and ADC2 on master port 2 channel 1 (`SWR_MIC4`).
+Earlier attempts used `SWR_MIC1`, where nothing is transmitted, which is why
+ADC2 looked dead for several sessions while the vendor stack (which configures
+channel 2 and therefore reads `SWR_MIC5`) worked.
 
+Measured with no cable plugged in:
+
+| test | left (ADC1) | right (ADC2 / INP3) | correlation |
+|---|---|---|---|
+| room noise, `arecord -D hw:0,3` | rms 73.7 | rms 58.5 | 0.167 |
+| tapping the top edge microphone | rms 48.8 | rms 11285.1 | -0.018 |
+| `pw-record` through the UCM source | rms 65.1 | rms 30.5 | 0.176 |
+
+The boom microphone is a single ADC, so both decimators are fed from the same
+SoundWire slot and the stereo PCM carries it on both channels (correlation
+0.9986).
+
+Six real bugs were fixed along the way:
 Six real bugs were fixed along the way:
 
 1. The UCM profile had no capture section at all, so no userspace tool could
@@ -79,17 +94,17 @@ The working settings live in the `Mic` and `HeadsetMic` sections of
 identical to `/root/tapas-alsa-working.state`; this check is how the hiss was
 found.
 
-Capture is **stereo**. The handset microphone duplicates DEC0 into DEC1 so the
-right channel carries the same signal, and the headset microphone feeds both
-decimators from its single SoundWire slot for the same reason. A mono sensor on
-a stereo PCM should not lose the right channel.
+Capture is **stereo**. The two internal microphones fill the two channels
+independently (left = handset, right = top). The headset boom microphone is a
+single source, so it feeds both decimators from its one SoundWire slot and the
+recording carries it on both channels instead of only the left one.
 
 `qcom,tx-port-mapping` was changed to `<1 2 3 4>` in the Tapas DTS. That is a
 real fix and should be kept: with `<1 1 2 3>` both ADCs were mapped onto master
 port 1 and enabling ADC2 corrupted ADC1's stream (~5100 rms of hiss). With the
 new mapping ADC1 stays clean (60.7 rms) next to ADC2.
 
-**Still open:** the third microphone (AMIC4 / ADC3) has never been tried.
+**Still open:** the third microphone input (AMIC4 / ADC3) has never been tried.
 
 ---
 
