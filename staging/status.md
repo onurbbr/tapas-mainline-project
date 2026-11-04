@@ -2,7 +2,7 @@
 
 Xiaomi Redmi Note 12 4G (tapas / SM6225) mainline port.
 
-- Kernel branch: `sm6225`, based on `c03c1a14507d` (Linux v7.3), 48 commits
+- Kernel branch: `sm6225`, based on `c03c1a14507d` (Linux v7.3), 54 commits
 - Running kernel on device: `7.3.0-sm6225-upstream+`
 - Distribution: Debian, booting from SD card (Android on the other boot slot)
 
@@ -16,7 +16,7 @@ Per-topic details, measurements and dead ends live in `issues/`.
 |---|-------|--------|---------|------|------|
 | 1 | Microphone (capture) | **WORKING** — handset + top microphone together, headset microphone on jack | Third microphone input (ADC3) untested | Small | `issues/microphone.md` |
 | 2 | Proximity sensor | **PARTIAL** — visible, never changes state | Raw `distance` reported by the DSP is in the 12–17 range; thresholds are 95/50 | Medium, uncertain | `issues/proximity.md` |
-| 3 | Camera | **OPEN** — none of it works | No SM6225 support in mainline CAMSS, no CPAS model | Large | `issues/camera.md` |
+| 3 | Camera | **PARTIAL** — rear main camera streams RAW frames; front/ultra/macro and the ISP stage open | No mainline drivers for S5K3L6, OV08A10 or GC02M1; no ISP/3A | Large | `issues/camera.md` |
 | 4 | Voice call | **OPEN** — UCM verb ready, no call audio | Firmware exposes only AudioReach VCPM, no legacy APR; mainline has no VCPM graph builder. The `Voice Call` verb (single `Call` endpoint plus speaker/headset modifiers) is written and its routing verified, but the DSP voice graph cannot be opened yet | Large | `issues/voice-call.md` |
 
 None of these are regressions. They were either deliberately out of scope for the
@@ -135,33 +135,36 @@ ADSP boot, so a normal reboot is required; `remoteproc` stop/start is forbidden.
 
 ## 3. Camera
 
-No stage of it works. The hardware map and the vendor software stack are
-understood, but mainline has no counterpart.
+The rear main camera **works**: `/dev/video0` streams a 8160x6144 RAW10 frame.
+The frame is raw Bayer with no ISP behind it, so it needs debayering and white
+balancing in userspace.
 
-- Four cameras, all on CCI: rear main (S5KJN1), front (S5K3L6 / OV13B10),
-  rear ultra (OV08D10), rear macro (GC02M1 / OV2680 / HI259) — the fitted part
-  varies by production batch.
-- `drivers/media/platform/qcom/camss/camss.c` has **no SM6225 support at all**;
-  the vendor stack is built around `qcom,cam-cpas` + TFE0-2 + OPE, and mainline
-  CAMSS does not model CPAS.
-- The `camss@5c11000` node in our `sm6225.dtsi` is `status = "disabled"`, has no
-  port endpoints, and nothing binds `"qcom,sm6225-camss"` — dead description.
-- `cci@5c1b000` does bind through the `"qcom,msm8996-cci"` fallback, so CCI I2C
-  is usable.
+- Four cameras, all on CCI: rear main (S5KJN1), front (S5K3L6), rear ultra
+  (OV08A10), rear macro (GC02M1). The vendor ships several module variants per
+  role, but the parts measured on this unit are the ones listed.
+- CAMSS now has a `CAMSS_6225` profile. The TFE really is `vfe_ops_340`, but the
+  CSIPHY is the SM8250 v1.2.1 core (`lane_regs_sm8250`, not the QCM2290 table),
+  and the camera AXI clock needs its own rate table.
+- The blocker turned out to be the PLL, not the ISP: GPLL10 was described as a
+  DEFAULT_EVO PLL copied from SM6115, while SM6225 uses Lucid and also needs the
+  FSM legacy mode bit cleared out of the configure path. Until both were fixed
+  the TFE clock source never locked and streaming failed with `-EBUSY`/`-110`.
+- CPAS turned out not to be needed for a single sensor RDI capture.
+- `wl2866d` rails feed the rear main sensor but are still `always-on`, because
+  the other three modules have no consumer.
 - Sensor drivers: `s5kjn1`, `ov08d10`, `ov13b10` and `ov2680` exist in mainline;
-  `s5k3l6`, `gc02m1` and `hi259` do not.
-- The `wl2866d` camera PMIC driver was ported (commit 44) but has no consumers
-  yet, so its rails are marked `always-on`.
+  `s5k3l6`, `gc02m1` and `hi259` do not, and the fitted front/ultra/macro parts
+  are S5K3L6, OV08A10 and GC02M1.
 
-**Next step:** add an SM6225 resource table to CAMSS. The 7.2 attempt is kept as
-a reference but was speculative and should not be carried over blindly.
+**Next step:** write the three missing sensor drivers, then look at the ISP and
+at line-based RDI programming so a GPU can import the buffers without a copy.
 
 ---
 
 ## Notes
 
-- Only what was actually measured is claimed as verified. The microphone was
-  measured and works; the proximity sensor was measured but is unresolved; the
-  camera was never exercised at all.
+- Only what was actually measured is claimed as verified. The microphones
+  work; the proximity sensor was measured but is unresolved; the camera streams
+  a raw frame but its colour path was never exercised.
 - The device is reachable as `ssh tapas`; the build and packaging VM as
   `ssh debian`.

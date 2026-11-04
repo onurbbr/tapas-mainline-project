@@ -1,29 +1,40 @@
 # Tapas — camera
 
-**Status:** OPEN · no stage of it works · largest work item
-**Last updated:** 2026-10-31 · kernel `7.3.0-sm6225-upstream+`, branch `sm6225`
-**Related commits:** 44 (`cd989c720f3d` — wl2866d camera PMIC description),
-43 (`d81b1c7cc4b8` — wl2866d driver)
+**Status:** PARTIAL · rear main camera captures RAW frames · three sensors
+and the ISP stage still open
+**Last updated:** 2026-11-04 · kernel `7.3.0-sm6225-upstream+`, branch `sm6225`
+**Related commits:** 51 (`9814a087230b` — FSM legacy mode in the Trion
+configure path), 52 (`764d4cdf7844` — GPLL10/GPLL11 as Lucid PLLs),
+53 (`d066ce363a18` — CAMSS SM6225 support), 54 (`c2ef6f64c443` — tapas rear
+camera pipeline), 43/44 (`d81b1c7cc4b8`, `cd989c720f3d` — wl2866d)
 
 ---
 
 ## 1. Summary
 
-The camera does not work yet, and the gaps are layered:
+The rear main camera works: `/dev/video0` streams a 8160x6144 RAW10 frame.
 
-1. **Kernel:** mainline CAMSS has no SM6225 support, and the CPAS layer the
-   vendor stack relies on has no mainline model at all. Without it there is
-   no capture path, no matter how well the sensors are described.
-2. **Device tree:** the camera bus and the rear main sensor are now
-   described, which is what makes the sensor probe work. The auxiliary
-   modules are not described yet because mainline has no driver for the parts
-   that are actually fitted.
-3. **Userspace:** the V4L2 + libcamera side was never set up.
+The frame is raw Bayer with no ISP stage behind it, so it is dark green
+noise to look at until it is debayered and white balanced by userspace. The
+sensor's own exposure and gain defaults are what you get.
 
-What works today: the Camera Control Interface is up and the rear main
-sensor (s5kjn1) probes, reads its chip ID and registers a V4L2 subdevice.
-That confirms the bus, the master clock, the reset line and the rail
-assignment.
+What was needed:
+
+1. **CAMSS:** a SM6225 profile in the driver. The blocks are the QCM2290
+   ones, but the CSIPHY is the v1.2.1 revision, whose lane register layout
+   differs from the QCM2290 table, and the camera AXI clock needs its own
+   rate table.
+2. **Clocks:** GPLL10 and GPLL11 were described as DEFAULT_EVO PLLs, copied
+   from SM6115. SM6225 uses Lucid, and the Trion configure path also has to
+   drop the PLL out of firmware (FSM legacy) mode. Without both, the TFE
+   clock source never locked and every streaming attempt failed before a
+   single byte was written.
+3. **Device tree:** the PHY rails had to move from the SoC dtsi to the
+   board, and the sensor and CSIPHY0 endpoints had to be connected.
+
+Still open: the front, ultra wide and macro modules (mainline has no driver
+for the S5K3L6, OV08A10 or GC02M1 that are actually fitted), the ISP/3A
+stage, autofocus, flash, and the EEPROMs.
 
 ---
 
@@ -179,57 +190,97 @@ is the layer that manages the camera NOC/data path and feeds the TFE/OPE blocks.
 
 ## 4. State on the mainline side
 
-### No SM6225 in `camss.c`
+### SM6225 is a CAMSS profile now
+
+Commit 53 adds `CAMSS_6225` to `camss.c` with its own `csiphy_res_6225`,
+`csid_res_6225`, `vfe_res_6225` and `icc_res_6225` tables, and registers
+`qcom,sm6225-camss`.
+
+It is close to the QCM2290 profile — same `csid_ops_340`, `vfe_ops_340` and
+`csiphy_ops_3ph_1_0` — but three things differ and each of them broke the
+pipeline when it was wrong:
+
+1. **CSIPHY lane table.** The downstream node is `qcom,csiphy-v1.2.1`, which
+   is the SM8250 core, and the register stride is 0x2000. Programming the
+   QCM2290 table leaves the PHY deaf: no interrupt, no byte in the RDI
+   buffer, no error. `lane_regs_sm8250` is the right table.
+2. **Camera AXI clock.** `gcc_camss_axi_clk_src` sits at its 19.2 MHz reset
+   rate unless a rate is listed for the `axi` clock. At 50 MP RAW10 that
+   overflows the CSID RDI FIFO, so `vfe_res_6225` lists 19.2/150/240/300 MHz
+   for it and the driver scales it with the pixel clock.
+3. **PLL.** See below.
+
+### The PLL was the real blocker
+
+`gcc-sm6225.c` described GPLL10 and GPLL11 as DEFAULT_EVO PLLs, with the
+SM6115 configurations. Both frequencies (1152 MHz and 600 MHz) are inside the
+declared VCO range, so nothing complained at boot. But the TFE takes its pixel
+clock from GPLL10 through an RCG that divides it by 7.5, and that RCG never saw
+a running parent:
 
 ```
-$ grep -c sm6225 drivers/media/platform/qcom/camss/camss.c
-0
+gcc_camss_tfe_0_clk_src: rcg didn't update its configuration.
+WARNING: drivers/clk/qcom/clk-rcg2.c:136 at update_config
+qcom-camss 5c11000.camss: clock enable failed: -16
 ```
 
-Existing profiles: `CAMSS_8x16, 8x39, 8x53, 8x96, 660, 670, 845, 2290, 6150,
-6350, 8250, 7280, 8280xp, 8300, 8550, 8650, 8775, qcs8300, x1e80100`.
+Switching both PLLs to Lucid changed the failure rather than fixing it:
 
-### But the building blocks exist
-
-- `drivers/media/platform/qcom/camss/camss-vfe-340.c` — the **TFE 340** hw_ops
-  is present in mainline.
-- `qcm2290_resources` (`.version = CAMSS_2290`) uses those TFE ops, and
-  `vfe_res_2290` defines the `camnoc_rt_axi` / `camnoc_nrt_axi` clocks.
-- SM6225 also belongs to the bengal family, so this profile is a **close**
-  starting point.
-
-### The `camss` node in our dtsi is dead
-
-`arch/arm64/boot/dts/qcom/sm6225.dtsi` (~line 3533):
-
-```dts
-camss: camss@5c11000 {
-	compatible = "qcom,sm6225-camss";       /* no driver matches */
-	reg = ... top, csid0-2, csiphy0-2, csitpg0-1, vfe0-2 ...;
-	reg-names = ...;
-	clocks = ... 20 GCC camera clocks ...;
-	interrupts = ...;
-	interconnects = ... ahb, hf_mnoc, sf_mnoc ...;
-	iommus = <&apps_smmu 0x400/0x800/0x820/0x840>;
-	power-domains = <&rpmpd SM6115_VDDMX>, <&rpmpd SM6115_VDDCX>, <&gcc GCC_CAMSS_TOP_GDSC>;
-	operating-points-v2 = <&camss_opp_table>;
-	vdd-csiphy-1p2-supply = <&pm6125_l4>;
-	vdd-csiphy-1p8-supply = <&pm6125_l18>;
-	status = "disabled";
-	ports { port@0 {} port@1 {} port@2 {} };   /* NO endpoints */
-};
+```
+wait_for_pll.constprop.0+0xcc
+clk_trion_pll_enable+0xb0
+alpha_pll_lucid_prepare+0x8c
+qcom-camss 5c11000.camss: clock enable failed: -110
 ```
 
-Three problems:
+The Lucid configure path never set `PLL_FSM_LEGACY_MODE`, so the firmware state
+machine stayed in charge of the loop filter and the PLL never locked on the
+programmed dividers. Commits 51 and 52 set the bit in
+`clk_trion_pll_configure()` when a PLL asks for it, and describe GPLL10/GPLL11
+as Lucid with `SUPPORTS_FSM_LEGACY_MODE`.
 
-1. `"qcom,sm6225-camss"` is not in `camss.c` and there is no fallback
-   compatible -> **it will never bind**.
-2. `status = "disabled"`, and the Tapas DTS has **no** `&camss` override.
-3. `port@0/1/2` are empty and have no endpoints -> the sensor connections are
-   not described.
+After that the RCG locks at 153.6 MHz and the pipeline starts.
 
-On the other hand the reg/clock/interrupt/IOMMU map in the node **is complete
-and usable**; once an SM6225 profile is added to CAMSS this node works as is.
+### The `camss` node works
+
+`arch/arm64/boot/dts/qcom/sm6225.dtsi` already described the whole block:
+regions for the top, the three CSIDs, the three CSIPHYs and the three TFEs,
+20 GCC clocks, the interrupts, the three interconnect paths, four SMMU
+streams, the MX/CX/TOP power domains and the OPP table. All of it was usable
+and none of it had to change, apart from moving the two CSIPHY rails out.
+
+Those rails were hardcoded to PM6125 L4 and L18 in the SoC dtsi, which is only
+true for boards that use that PMIC. They are board specific, so they moved to
+`sm6225-xiaomi-tapas.dts`.
+
+Commit 54 sets `status = "okay"`, adds the supplies and connects the sensor
+endpoint to the CSIPHY0 endpoint. Only the PHY side needs describing: the
+driver links every CSIPHY to every CSID and every CSID line to every TFE line
+by itself.
+
+### Resulting pipeline
+
+```
+s5kjn1 0-0010                /dev/v4l-subdev18   SGRBG10_1X10/8160x6144
+  -> msm_csiphy0             /dev/v4l-subdev0
+  -> msm_csid0               /dev/v4l-subdev3
+  -> msm_vfe0_rdi0           /dev/v4l-subdev6
+  -> msm_vfe0_video0         /dev/video0
+```
+
+Measured on the unit:
+
+```
+CSIPHY 3PH HW Version = 0x40010000
+VFE:0 HW Version = 1.2.0
+CSID:0 HW Version = 1.0.3
+VFE0: Started client 7 width 8160 height 6144 stride 10200
+v4l2-ctl ... --stream-count=1   -> 62668800 bytes
+```
+
+62668800 is exactly 8160 * 6144 * 10 / 8, one RAW10 frame. Histogram: mean
+36.8, 99.9 % non-zero, two dominant byte values. Rendered as 8-bit greyscale
+the frame shows the ceiling of the room.
 
 ### CCI works
 
@@ -290,90 +341,90 @@ Flash should be handled as a separate sub-task once the camera works.
 
 ---
 
-## 5. Why it was left out of the initial port
+## 5. Why it was left out of the initial port, and what changed
 
-The 7.2 branch did add SM6225 to `camss.c`:
+The 7.2 branch did add SM6225 to `camss.c`, but as `.version = CAMSS_2290`
+with the QCM2290 CSIPHY lane table, and it was left out of the port: without
+the CSIPHY lane table, the AXI clock rates or a working GPLL10 the profile
+would have bound and then failed at the first stream, which is harder to
+diagnose than a compatible that does not bind at all.
 
-```
-csiphy_res_sm6225, csid_res_sm6225, vfe_res_sm6225, icc_res_sm6225
-sm6225_resources { .version = CAMSS_2290, ... }
-```
-
-But `vfe_res_sm6225` models the three SM6225 **TFE** blocks as `vfe_ops_340`
-VFE340 instances using the `camnoc_rt_axi`/`camnoc_nrt_axi` clocks. Since
-mainline has no CPAS layer this mapping was **speculative**: it compiles, but
-on real hardware the data path setup would be incomplete. That is why it was
-not carried over.
-
-That decision is defensible, but the `qcom,sm6225-camss` compatible in the dtsi
-was left as an **open loose end**: nothing binds it and nothing consumes it.
+The reference port for the same SoC (Motorola fogona, SD680) showed what was
+missing and the profile was rebuilt on top of it. The prediction held: the
+first build bound and produced 12 video nodes immediately, then failed at
+STREAMON with `-EBUSY`, and needed the PLL work before a frame came out.
 
 ---
 
 ## 6. Work to do (small to large)
 
-### Stage 0 — measurement / inventory (easy)
+### Stage 0 — measurement / inventory (DONE)
 
-1. Determine which sensor is fitted. Either probe over CCI (address scan while
-   the sensors are held in reset) or infer it from the `/vendor` calibration
-   file names (`s5kjn1` / `ov08d10` / ... calibration binaries).
-2. Determine which PMIC carries the flash LED (vendor `leds-qti-flash.ko`
-   symbols, PMIC register map).
+1. Which sensor is fitted: answered by the vendor kernel log
+   (`Probe success,slot:N,slave_addr:0xXX`) — S5KJN1 rear, S5K3L6 front,
+   OV08A10 ultra wide, GC02M1 macro. See section 2.
+2. Flash LED: still undetermined; no `qcom,spmi-flash-led` node exists in the
+   vendor DT.
 
-### Stage 1 — CCI + sensor probe (medium)
+### Stage 1 — CCI + sensor probe (DONE for the rear main)
 
-3. Add the CCI child nodes to the Tapas DTS: sensor, EEPROM and actuator nodes
-   under `&cci_i2c0` / `&cci_i2c1` (address, reset, MCLK, rails).
-4. Add the MCLK pinctrl states (TLMM 20/21/27/28, function `cam_mclk`).
-5. Add the `cam_vaf_2p8` regulator-fixed (TLMM 101) and the VAF actuator.
-6. Remove `always-on` from the `wl2866d` rails and wire them to the sensors as
-   `*-supply`.
-7. Add the sensor drivers (`s5kjn1`, `ov08d10`, `ov13b10`, `ov2680`) to
-   `sm6225_defconfig`.
-8. Verify with `media-ctl` that the subdev topology appears (subdevs show up
-   under CCI even without CAMSS).
+3. CCI child nodes: added for the rear main sensor only.
+4. MCLK pinctrl states: added, all four.
+5. VAF actuator and `cam_vaf_2p8`: **not** added.
+6. `wl2866d` rails are wired to the rear main sensor but still `always-on`,
+   because the other three modules have no consumer.
+7. Sensor driver in defconfig: `CONFIG_VIDEO_S5KJN1=y`,
+   `CONFIG_VIDEO_OV08D10`/`OV2680` were dropped again with the address sweep.
+8. `media-ctl` shows the subdev topology.
 
-This stage can be done **without CAMSS** and proves the sensors are reachable.
+### Stage 2 — CAMSS SM6225 profile (DONE)
 
-### Stage 2 — CAMSS SM6225 profile (hard)
+9. `csiphy_res_6225`, `csid_res_6225`, `vfe_res_6225`, `icc_res_6225` and
+   `sm6225_resources` are in `camss.c`. The TFE really is `vfe_ops_340`, the
+   CSIPHY is the SM8250 v1.2.1 core, and CAMSS ICC paths are enough — the
+   vendor CPAS layer is not needed for a single sensor RDI capture.
+10. CSIPHY0 endpoint added and connected to the sensor endpoint.
+11. `status = "okay"`, OPP table verified and voted through the MX/CX domains.
 
-9. Add `csiphy_res_sm6225`, `csid_res_sm6225`, `vfe_res_sm6225`,
-   `icc_res_sm6225` and `sm6225_resources` to `camss.c`. The 7.2 attempt is a
-   **reference**, but:
-   - is TFE really `vfe_ops_340`? The register map must be verified,
-   - CSIPHY v1.2.1 and CSID compatibility must be checked,
-   - whether CAMSS ICC paths can substitute for what CPAS does (NOC/data path)
-     must be **measured** — this is the largest risk.
-10. Add port endpoints to the `camss` node in `sm6225.dtsi`
-    (`camss_port0_in` <- sensor output, CSIPHY/CSID links).
-11. Set `camss` `status = "okay"` and verify the OPP table.
-
-### Stage 3 — userspace (medium to hard)
+### Stage 3 — userspace (next)
 
 12. Bring up the V4L2 pipeline with `v4l2-ctl`/`media-ctl` and capture a single
-    frame.
-13. libcamera + `libcamera-tools` (only if the simple pipeline is supported) or
-    an application talking V4L2 directly.
+    frame. **DONE** — that is how the first frame was validated.
+13. libcamera + `libcamera-tools`, or an application talking V4L2 directly.
 14. There is no ISP/3A — CAMSS delivers raw Bayer, so colour processing has to
     happen in userspace. For a "take a photo" goal that is a separate project of
     its own.
+
+### Stage 4 — remaining sensors (medium, per sensor)
+
+15. Write drivers for S5K3L6, OV08A10 and GC02M1 — none exist in mainline.
+16. Add their CSIPHY endpoints and CSI mux handling (ultra wide and macro share
+    CSIPHY1, selected by GPIO 100).
+17. EEPROMs (four), autofocus (VAF on GPIO 101 + WL2866D) and flash.
+
+### Known gap in the capture path
+
+The RDI write masters are programmed frame based, so the stride is derived from
+the line length and a larger `bytesperline` from userspace is ignored. Frames
+are correct, but a GPU importing the buffer has to copy them to a 64-byte
+aligned pitch. The reference port switches the RDI path to line based
+programming for this; that has not been done here.
 
 ---
 
 ## 7. Realistic assessment
 
-| Stage | Difficulty | Note |
+| Stage | Difficulty | State |
 |---|---|---|
-| 0 — inventory | Easy | 1–2 days |
-| 1 — CCI + sensor probe | Medium | Weeks; can be attempted without touching CAMSS |
-| 2 — CAMSS profile | **Hard** | The CPAS gap is the real uncertainty |
-| 3 — userspace + ISP | Hard | A separate project |
+| 0 — inventory | Easy | done |
+| 1 — CCI + rear sensor | Medium | done |
+| 2 — CAMSS profile | **Hard** | done; the PLL was the hard part |
+| 3 — userspace | Medium | raw capture works, colour pipeline open |
+| 4 — remaining sensors | Medium each | needs three new sensor drivers |
 
-The biggest technical risk is **CPAS**. Mainline CAMSS does not model the vendor
-CPAS layer. Whether TFE/OPE data paths work on SM6225 without it, and whether
-upstream has a precedent, is not clear. That question should be answered before
-starting Stage 2 — for example by comparing against a similar stack that runs
-without CPAS, such as sm8250 or qcm2290.
+The CPAS worry turned out not to matter for a single sensor RDI capture: the
+TFE writes to memory through the SMMU and the ICC paths, and nothing in the
+graph needs a CPAS node.
 
 ---
 
@@ -409,12 +460,11 @@ without CPAS, such as sm8250 or qcm2290.
 
 ## 10. Constraints / notes
 
-- Nothing in this document was verified on hardware; the camera was **never
-  exercised**.
+- Raw frame capture, the sensor probe and the topology above were verified on
+  the unit. Debayering, colour, exposure control and autofocus were not.
 - The `wl2866d` rails are currently `always-on` — a deliberate temporary state
-  that should be removed once the camera works.
-- The `camss` node in `sm6225.dtsi` is currently dead code; it was not deleted
-  because it is a ready foundation for Stage 2.
+  that should be removed once all four modules have consumers.
 - Sensor drivers are limited to those present in mainline (`s5kjn1`, `ov08d10`,
   `ov13b10`, `ov2680`); `s5k3l6`, `gc02m1` and `hi259` would need drivers
-  written from scratch.
+  written from scratch, and the parts actually fitted are S5K3L6, OV08A10 and
+  GC02M1.
