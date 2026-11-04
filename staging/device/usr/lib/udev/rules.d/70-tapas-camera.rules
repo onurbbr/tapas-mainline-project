@@ -1,0 +1,11 @@
+# Give the seat user access to the dma-buf heaps.
+#
+# devtmpfs creates /dev/dma_heap/* with mode 0600 and owner root:root, and
+# nothing in the base system relaxes that. libcamera opens the system heap
+# for its software ISP: without it the ISP cannot allocate its buffers and
+# debayering is disabled, which leaves the camera with no usable stream and
+# hides it from camera applications.
+#
+# The heap is shared between every process of the logged in user, so an ACL
+# for the active seat is enough; no permanent group membership is needed.
+SUBSYSTEM=="dma_heap", TAG+="uaccess"

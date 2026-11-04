@@ -355,6 +355,7 @@ build_device() {
     need_file "$ucm/tapas.conf"
     need_file "$ucm/tapas-HiFi.conf"
     need_file "$root/usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf"
+    need_file "$root/usr/lib/udev/rules.d/70-tapas-camera.rules"
 
     log "preparing device package: $DEVPKG ($DEV_VER)"
     rm -rf "$pkgdir"
