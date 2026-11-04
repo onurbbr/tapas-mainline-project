@@ -9,16 +9,21 @@
 
 ## 1. Summary
 
-The camera has **never worked**. The reason is not a single gap but three layers:
+The camera does not work yet, and the gaps are layered:
 
 1. **Kernel:** mainline CAMSS has no SM6225 support, and the CPAS layer the
-   vendor stack relies on has no mainline model at all.
-2. **Device tree:** there are no sensor/EEPROM/actuator/flash nodes, and the
-   `camss` node is dead.
+   vendor stack relies on has no mainline model at all. Without it there is
+   no capture path, no matter how well the sensors are described.
+2. **Device tree:** the camera bus and the rear main sensor are now
+   described, which is what makes the sensor probe work. The auxiliary
+   modules are not described yet because mainline has no driver for the parts
+   that are actually fitted.
 3. **Userspace:** the V4L2 + libcamera side was never set up.
 
-The good news: **most of the sensors actually used already have mainline
-drivers.**
+What works today: the Camera Control Interface is up and the rear main
+sensor (s5kjn1) probes, reads its chip ID and registers a V4L2 subdevice.
+That confirms the bus, the master clock, the reset line and the rail
+assignment.
 
 ---
 
@@ -63,9 +68,63 @@ m7_ofilm_gc02m1_macro_i     m7_sunny_ov2680_macro_ii
 m7_truly_hi259_macro_iii
 ```
 
-So there are seven distinct parts: **S5KJN1, OV08D10, S5K3L6, OV13B10, GC02M1,
-OV2680, HI259**. Which one is fitted can only be determined by probing the
-device.
+The module names in that list do not match what this unit reports. The
+vendor camera stack prints a line per module while it probes, and the chip
+IDs it reads only agree with the rear main sensor:
+
+```
+Probe success,slot:0,slave_addr:0x20,sensor_id:0x38     s5kjn1   rear main
+Probe success,slot:1,slave_addr:0x20,sensor_id:0x30c6   s5k3l6   front
+Probe success,slot:2,slave_addr:0x6c,sensor_id:0x5647   ov08a10  rear ultra
+Probe success,slot:3,slave_addr:0x6e,sensor_id:0x2e0    gc02m1   rear macro
+```
+
+So this unit has **S5KJN1 + S5K3L6 + OV08A10 + GC02M1**, not the
+`ov13b10`/`ov08d10`/`ov2680` combination the package names suggest. The
+address is the 8-bit one, so the 7-bit address is half of it.
+
+### Measured on this unit
+
+Addresses, buses and power sequencing were read back from the vendor stack
+while each camera was opened from the factory test application.
+
+| slot | role | part | 7-bit addr | CCI | MCLK | reset |
+|---|---|---|---|---|---|---|
+| 0 | rear main | s5kjn1 | 0x10 | 0 | gpio20 | gpio18 |
+| 1 | front | s5k3l6 | 0x10 | 1 | gpio21 | gpio24 |
+| 2 | rear ultra | ov08a10 | 0x36 | 1 | gpio27 | gpio19 |
+| 3 | rear macro | gc02m1 | 0x37 | 0 | gpio28 | gpio68 |
+
+WL2866D rail usage, as logged by the vendor stack:
+
+| module | rail | voltage |
+|---|---|---|
+| rear main | DVDD2 | 1050 mV |
+| rear main | AVDD2 | 2800 mV |
+| front | DVDD1 | 1200 mV |
+| front | AVDD1 | 2800 mV |
+| rear ultra | AVDD1 | 2800 mV |
+| rear macro | AVDD1 | 2800 mV |
+
+The rear main sensor is the only module that uses DVDD2 and AVDD2. Every
+other module runs from AVDD1, which is why that rail is always on.
+
+Two extra resource lines belong to modules without a mainline driver: the
+rear ultra sits behind a CSI lane mux on gpio100, and the macro module has
+a VIO enable on gpio99.
+
+### What was tried and did not work
+
+The two auxiliary sensors that mainline does have a driver for were
+described and powered, and neither of them probes:
+
+* `ov08d10` at 0x36 on CCI 1 does not acknowledge at all, with either reset
+  polarity and on either CCI bus.
+* `ov2680` at 0x37 on CCI 0 acknowledges on the bus but reads 0x0000 from
+  its chip ID register instead of 0x2680.
+
+Both failures are explained by the part identification above: the fitted
+parts are an ov08a10 and a gc02m1, and neither has a mainline driver.
 
 ### Mainline sensor driver status
 
