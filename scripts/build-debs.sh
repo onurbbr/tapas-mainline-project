@@ -397,6 +397,7 @@ build_device() {
     need_file "$ucm/tapas-HiFi.conf"
     need_file "$root/usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf"
     need_file "$root/usr/lib/udev/rules.d/99-tapas-sensors.rules"
+    need_file "$root/usr/lib/udev/rules.d/70-tapas-camera.rules"
     need_file "$root/usr/lib/systemd/system/hexagonrpcd.service.d/tapas.conf"
     need_file "$root/usr/lib/systemd/system/iio-sensor-proxy.service.d/tapas.conf"
 
