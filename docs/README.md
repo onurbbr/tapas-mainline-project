@@ -3,42 +3,54 @@
 Xiaomi Redmi Note 12 4G (codename **tapas**, SoC **SM6225 "Khaje"**) running
 mainline Linux.
 
-This directory is split in two: what runs on the device today, and what does
-not. Everything here was measured on hardware unless a section says otherwise;
-no claim is made for anything that was not actually exercised.
+One document per subsystem, all of them directly in this directory. Each opens
+with a `**Status:**` line that states how far it got, so a file name never
+hides a partial result: proximity produces readings but never reports `NEAR`,
+the camera captures RAW frames but has no ISP, and both say so on their first
+line rather than being filed under a heading that lies about them.
 
-- [Project status](status.md) — kernel trees, packages, and the full picture
-- `working/` — subsystems that are usable
-- `not-working/` — open problems, with the measurements behind them
-- `../sources/forensics/` — vendor device trees, decompiled, used as reference
+Everything here was measured on hardware unless a section says otherwise. No
+claim is made for anything that was not actually exercised.
 
-## Working
+- [Project status](status.md) — kernel trees, packaging, and a longer summary
+- [`../sources/forensics/`](../sources/forensics/) — vendor device trees,
+  decompiled, kept as reference
 
-| Subsystem | What works | Detail |
+## At a glance
+
+| Subsystem | Status | Detail |
 |---|---|---|
-| Boot | U-Boot from SD card, Debian userspace, slot A keeps Android | [status](status.md) |
-| Display | Xiaomi M7 38 0C 0A AMOLED, 1080x2400 DSI | [status](status.md) |
-| Touch | Focaltech FT3518/FT3519 over I2C | [status](status.md) |
-| Storage | UFS, QMP UFS PHY | [status](status.md) |
-| Audio playback | Speaker, headphones with automatic jack switch, earpiece | [audio](working/audio.md) |
-| Audio capture | Handset microphone and top microphone together; headset boom microphone when a cable is plugged in | [audio](working/audio.md) |
-| Haptics | Vibration motor, on/off only | [status](status.md) |
-| Sensors | Accelerometer, ambient light, compass | [status](status.md) |
-| Camera capture | Rear main (S5KJN1), front (S5K3L6), rear ultra wide (OV08D10) as RAW Bayer | [camera](working/camera.md) |
-| Camera lens | V4L2 `focus_absolute`, the voice coil actually moves | [camera](working/camera.md) |
-| Video decode | H.264, HEVC and VP9 through `iris` | [video decode](working/video-decode.md) |
-| Charging | BQ25890 with USB charger type reporting, SC8551, SM5602, DS28E16 | [status](status.md) |
+| Boot | Working — U-Boot from SD card, Debian, slot A keeps Android | [status](status.md) |
+| Display | Working — Xiaomi M7 38 0C 0A AMOLED, 1080x2400 DSI | [status](status.md) |
+| Touch | Working — Focaltech FT3518/FT3519 | [status](status.md) |
+| Storage | Working — UFS and the QMP UFS PHY | [status](status.md) |
+| Charging | Working — BQ25890 with USB type reporting, SC8551, SM5602, DS28E16 | [status](status.md) |
+| Audio playback | Working — speaker, headphones on jack, earpiece | [audio](audio.md) |
+| Audio capture | Working — handset and top microphone together, headset boom on jack | [audio](audio.md) |
+| Third microphone (ADC3 / AMIC4) | Untested — wired in the device tree, never exercised | [audio](audio.md) |
+| Haptics | Working — on/off only, the enable GPIO is the single control | [status](status.md) |
+| Sensors | Working — accelerometer, ambient light, compass | [status](status.md) |
+| Camera capture | Working, RAW only — rear main, front, ultra wide | [camera](camera.md) |
+| Camera lens | Working in the kernel — `focus_absolute` moves the voice coil | [camera](camera.md) |
+| ISP / 3A | Missing — no mainline ISP, so cameras deliver RAW Bayer | [camera](camera.md) |
+| Video decode | Working — H.264, HEVC and VP9 through `iris` | [video decode](video-decode.md) |
+| Proximity | Partial — readings arrive, `NEAR` never triggers | [proximity](proximity.md) |
+| Autofocus | Open in userspace — kernel side done, no AF above it | [autofocus](autofocus.md) |
+| Rear macro camera | Open — the sensor probes, no frames arrive | [macro camera](camera-macro.md) |
+| Voice call | Parked — the DSP rejects the voice graph | [voice call](voice-call.md) |
 
-## Not working
+## The documents
 
-| Subsystem | Problem | Detail |
-|---|---|---|
-| Voice call | No call audio in either direction. Parked. | [voice call](not-working/voice-call.md) |
-| Proximity | The sensor is published but never reports `NEAR` | [proximity](not-working/proximity.md) |
-| Rear macro camera | The sensor probes, no frames arrive | [macro camera](not-working/camera-macro.md) |
-| Autofocus | The kernel side works, no userspace stack drives it | [autofocus](not-working/autofocus.md) |
-| ISP / 3A | No mainline ISP, so cameras deliver RAW Bayer only | [camera](working/camera.md) |
-| Third microphone input | ADC3 / AMIC4 is wired in the device tree but was never tested | [audio](working/audio.md) |
+| File | Covers |
+|---|---|
+| [status.md](status.md) | Kernel trees, what is installed, packaging, firmware and calibration data |
+| [audio.md](audio.md) | Playback and capture paths, mixer controls, the headset microphone, the bugs that had to be fixed |
+| [camera.md](camera.md) | Four modules, the CSIPHY/CSID/VFE pipeline, the PLL problem, the accessories (voice coil, EEPROM, flash LED) |
+| [video-decode.md](video-decode.md) | Why `iris` and not `venus`, the three fixes it needed, measured decode results |
+| [proximity.md](proximity.md) | The boot race that hid the sensor, and why the raw range cannot be thresholded |
+| [autofocus.md](autofocus.md) | The GT9764 actuator, the working kernel control, and the missing userspace stack |
+| [camera-macro.md](camera-macro.md) | The GC02M1 that probes but never streams, and the eleven hypotheses already ruled out |
+| [voice-call.md](voice-call.md) | Why call audio does not go through this card, and where the AudioReach work stopped |
 
 ## Git repositories
 

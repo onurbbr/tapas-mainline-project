@@ -1,6 +1,6 @@
 # Tapas — proximity sensor (tmd2755)
 
-**Status:** PARTIAL · the sensor is visible and produces data but never reports `NEAR`
+**Status:** PARTIAL · the sensor is visible and produces readings, but never reports `NEAR`
 **Last updated:** 2026-10-31 · kernel `7.3.0-sm6225-upstream+`, branch `sm6225`
 
 ---

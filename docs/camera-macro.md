@@ -1,7 +1,6 @@
 # Tapas — rear macro camera (GC02M1)
 
-**Status: not working.** The sensor probes and answers on I2C, the graph
-connects, but no frame ever reaches memory.
+**Status:** OPEN · the sensor probes and answers on I2C and the graph connects, but no frame ever reaches memory
 
 | | |
 |---|---|
@@ -59,5 +58,5 @@ and does not match what the other modules on the same PHY use.
 ## Where the work is archived
 
 The driver and device tree node were never committed: they live in the 7.3
-tree's working history and in the notes of `working/camera.md`. Nothing about
+tree's history and in the notes of [`camera.md`](camera.md). Nothing about
 this module is in the 7.4 tree.

@@ -1,6 +1,6 @@
 # Tapas — microphone / audio capture
 
-**Status:** WORKING (handset, top and headset microphone)
+**Status:** WORKING · handset and top microphone together, headset boom microphone on jack
 **Last updated:** 2026-11-03 · kernel `7.3.0-sm6225-upstream+`, branch `sm6225`
 **Related commits:** 27 (island CODEC DMA), 29 (soundwire resume), 30 (wcd937x
 earpiece), 31 (VA macro 2.1), 32 (AW87XXX), 33 (Tapas sound card)
@@ -329,4 +329,4 @@ regression.
    never been tried; the device tree route is in place but no UCM device uses
    it.
 2. Speaker protection / ACDB calibration is a separate topic.
-3. Voice call audio is blocked on the DSP side, see [the voice call notes](../not-working/voice-call.md).
+3. Voice call audio is blocked on the DSP side, see [the voice call notes](voice-call.md).

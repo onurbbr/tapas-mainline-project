@@ -88,11 +88,11 @@ staging/device/           install tree, copied verbatim into device-xiaomi-tapas
   usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf
   usr/share/u-boot-menu/conf.d/tapas.conf
 
-docs/                     what works and what does not, with the detail
-  README.md               index of the two lists
+docs/                     one document per subsystem, with the detail
+  README.md               index: one row per subsystem, with its status
   status.md               kernel trees, hardware tested, firmware notes
-  working/                audio, camera, video decode
-  not-working/            proximity, voice call, macro camera, autofocus
+  audio.md  camera.md  video-decode.md
+  proximity.md  voice-call.md  camera-macro.md  autofocus.md
 
 sources/forensics/        vendor device trees, decompiled once and kept here
   merged-fdt.dts          the merged Tapas DT, 16 098 lines

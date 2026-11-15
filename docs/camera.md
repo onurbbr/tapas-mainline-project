@@ -1,7 +1,6 @@
 # Tapas — camera
 
-**Status:** PARTIAL · rear main, front and ultra wide capture RAW frames ·
-macro sensor and the ISP stage still open
+**Status:** WORKING · rear main, front and ultra wide capture RAW frames; the macro sensor and the ISP stage are still open
 **Last updated:** 2026-11-10 · kernel `7.3.0-sm6225-upstream+`, branch `sm6225`
 **Related commits** (branch `sm6225`, 104 commits in total): `9814a087230b`
 FSM legacy mode in the Trion configure path · `764d4cdf7844` GPLL10/GPLL11 as
@@ -177,7 +176,7 @@ parts are an ov08a10 and a gc02m1, and neither has a mainline driver.
 
 ## 3. Vendor software stack
 
-From the vendor DT (`sources/forensics/tapas-overlay.dts`) and the
+From the vendor DT (`../sources/forensics/tapas-overlay.dts`) and the
 `/vendor`, `/vendor_dlkm`
 images:
 
@@ -510,7 +509,7 @@ graph needs a CPAS node.
 ## 9. Forensic sources
 
 The vendor device trees were decompiled once and checked in under
-`sources/forensics/`, so nothing here depends on a scratch directory any more.
+`../sources/forensics/`, so nothing here depends on a scratch directory any more.
 `images/` on the build machine holds the originals.
 
 | Path | Contents |

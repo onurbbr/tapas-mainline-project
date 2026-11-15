@@ -1,10 +1,6 @@
 # Voice call audio
 
-**Status:** PARKED (2026-11-10) · the DSP accepts the graph but rejects
-`GRAPH_PREPARE`, so no audio flows · everything needed to resume is in
-`sources/tapas-voice-poc/`
-
-Status: **open, blocked on a missing kernel/userspace graph builder**
+**Status:** PARKED (2026-11-10) · the DSP accepts the graph but rejects `GRAPH_PREPARE`, so no audio flows; everything needed to resume is in `../sources/tapas-voice-poc/`
 
 Media playback and capture work. Call audio does not, and this document
 records why, what was ruled out, and which routes remain.

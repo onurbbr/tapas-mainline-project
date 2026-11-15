@@ -1,7 +1,6 @@
 # Tapas — autofocus
 
-**Status: not working in userspace.** The kernel side is complete and was
-measured; nothing above it drives the lens.
+**Status:** OPEN in userspace · the kernel side is complete and was measured; nothing above it drives the lens
 
 | | |
 |---|---|

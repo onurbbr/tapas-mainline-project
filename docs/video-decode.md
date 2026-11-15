@@ -1,6 +1,6 @@
 # Tapas — video decode
 
-**Status: working.** H.264, HEVC and VP9 decode end to end in hardware.
+**Status:** WORKING · H.264, HEVC and VP9 decode end to end in hardware
 
 | | |
 |---|---|
