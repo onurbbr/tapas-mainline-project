@@ -1,0 +1,17 @@
+[Unit]
+Description=Voice call audio (attach the ADSP voice graphs during a call)
+# Polls ModemManager for an active call. The graphs come from the firmware
+# package (qcom/sm6225/voice-*.bin, built from this handset's own ACDB) and
+# are attached through the q6apm-voice-poc module.
+After=ModemManager.service sound.target
+Wants=sound.target
+ConditionPathExists=/sys/kernel/debug
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/tapas-voice-call-watch
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

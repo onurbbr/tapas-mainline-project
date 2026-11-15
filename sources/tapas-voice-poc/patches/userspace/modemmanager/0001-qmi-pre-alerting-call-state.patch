@@ -1,0 +1,40 @@
+From fa3f8ac684f8d50512735c7adb0972854e50b7d4 Mon Sep 17 00:00:00 2001
+From: William Floyd <git@notmy.space>
+Date: Fri, 25 Sep 2026 15:48:01 +0000
+Subject: [PATCH] qmi: handle the pre-alerting call state
+
+libqmi names QMI voice call state 0x0B QMI_VOICE_CALL_STATE_PRE_ALERTING:
+a mobile-terminated IMS call that exists but has not alerted yet. Report
+it as ringing-in, as SETUP already is.
+
+Needs a libqmi with QMI_VOICE_CALL_STATE_PRE_ALERTING; upstream this goes
+with raising the qmi-glib requirement to the release that adds it.
+
+Signed-off-by: William Floyd <git@notmy.space>
+---
+ src/mm-broadband-modem-qmi.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/mm-broadband-modem-qmi.c b/src/mm-broadband-modem-qmi.c
+index 240796790..ac6778dfb 100644
+--- a/src/mm-broadband-modem-qmi.c
++++ b/src/mm-broadband-modem-qmi.c
+@@ -11646,6 +11646,7 @@ all_call_status_indication_cb (QmiClientVoice                        *client,
+                     call_info->state = MM_CALL_STATE_RINGING_OUT;
+                     break;
+                 case QMI_VOICE_CALL_STATE_SETUP:
++                case QMI_VOICE_CALL_STATE_PRE_ALERTING:
+                 case QMI_VOICE_CALL_STATE_INCOMING:
+                     call_info->state = MM_CALL_STATE_RINGING_IN;
+                     break;
+@@ -12090,6 +12091,7 @@ process_get_all_call_info (QmiClientVoice                       *client,
+                     call_info->state = MM_CALL_STATE_RINGING_OUT;
+                     break;
+                 case QMI_VOICE_CALL_STATE_SETUP:
++                case QMI_VOICE_CALL_STATE_PRE_ALERTING:
+                 case QMI_VOICE_CALL_STATE_INCOMING:
+                     call_info->state = MM_CALL_STATE_RINGING_IN;
+                     break;
+-- 
+GitLab
+

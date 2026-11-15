@@ -1,0 +1,46 @@
+From e119de28a14f6497174b57feb8d14debdd6a9d83 Mon Sep 17 00:00:00 2001
+From: William Floyd <git@notmy.space>
+Date: Fri, 25 Sep 2026 15:41:47 +0000
+Subject: [PATCH] voice: add the pre-alerting call state
+
+Incoming VoLTE calls on a Motorola moto g play 2024 (SM6225) on AT&T
+are reported in 'QMI Voice All Call Status' with call state 0x0B, before
+the call alerts:
+
+  Call Information: 01:01:0B:02:02:04:00:00
+  (1 call, id 1, state 0x0B, type voice-ip, direction MT, mode LTE)
+
+0x0B is past QMI_VOICE_CALL_STATE_SETUP (0x0A), the last state in the
+GobiAPI headers the enum was taken from, so libqmi had no name for it.
+
+Name it after the pre-alerting phase of an IMS session (3GPP TS 24.237,
+GSMA IR.64): the call exists but has not reached 180 Ringing yet.
+
+Signed-off-by: William Floyd <git@notmy.space>
+---
+ src/libqmi-glib/qmi-enums-voice.h | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/libqmi-glib/qmi-enums-voice.h b/src/libqmi-glib/qmi-enums-voice.h
+index b0f41aca..8476ee6a 100644
+--- a/src/libqmi-glib/qmi-enums-voice.h
++++ b/src/libqmi-glib/qmi-enums-voice.h
+@@ -53,6 +53,7 @@
+  * @QMI_VOICE_CALL_STATE_DISCONNECTING: Disconnecting.
+  * @QMI_VOICE_CALL_STATE_END: Call is finished.
+  * @QMI_VOICE_CALL_STATE_SETUP: 3GPP specific. MT call is in setup state.
++ * @QMI_VOICE_CALL_STATE_PRE_ALERTING: MT call is in pre-alerting state, before it alerts. Seen on IMS calls. Since 1.40.
+  *
+  * State of a call.
+  *
+@@ -70,6 +71,7 @@ typedef enum { /*< since=1.14 >*/
+     QMI_VOICE_CALL_STATE_DISCONNECTING  = 0x08,
+     QMI_VOICE_CALL_STATE_END            = 0x09,
+     QMI_VOICE_CALL_STATE_SETUP          = 0x0A,
++    QMI_VOICE_CALL_STATE_PRE_ALERTING   = 0x0B,
+ } QmiVoiceCallState;
+ 
+ /**
+-- 
+GitLab
+

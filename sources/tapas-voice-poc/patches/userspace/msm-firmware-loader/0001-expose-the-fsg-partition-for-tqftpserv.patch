@@ -1,0 +1,43 @@
+From 85df4eaaca5c6595c4fa29bf4086d123d94e40c8 Mon Sep 17 00:00:00 2001
+From: Onur BUBER <onurbuber@engineer.com>
+Date: Mon, 9 Nov 2026 00:27:33 +0300
+Subject: [PATCH] expose the fsg partition for tqftpserv
+
+---
+ msm-firmware-loader.sh | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/msm-firmware-loader.sh b/msm-firmware-loader.sh
+index 4b48d46..b3e15f9 100644
+--- a/msm-firmware-loader.sh
++++ b/msm-firmware-loader.sh
+@@ -46,6 +46,7 @@ FW_PARTITIONS="
+ 	apnhlos
+ 	bluetooth$(ab_get_slot)
+ 	dsp$(ab_get_slot)
++	fsg$(ab_get_slot)
+ 	modem$(ab_get_slot)
+ 	persist
+ 	vendor$(ab_get_slot)
+@@ -141,6 +142,21 @@ do
+ 	fi
+ done
+ 
++# The modem fetches its MCFG (modem configuration, i.e. the RF and carrier
++# setup) over tqftpserv from /readonly/vendor/fsg/ or /readonly/fsg/, which are
++# symlinks in the stock RFS tree pointing at the fsg partition mounted at
++# /vendor/fsg or /fsg. tqftpserv resolves both to "fsg/" next to the remoteproc
++# firmware, so expose the partition there. Without it the modem never gets an RF
++# configuration: it reports no bands, activates no carrier config and stays in
++# operating mode "offline", answering DeviceNotReady to anything else.
++#
++# Note this fsg is a filesystem, and a different thing from the raw fsg blob
++# rmtfs serves under the same name.
++if [ -d "$BASEDIR/mnt/fsg$(ab_get_slot)" ] && [ ! -e "$BASEDIR/target/fsg" ]
++then
++	ln -s "$BASEDIR/mnt/fsg$(ab_get_slot)" "$BASEDIR"/target/fsg
++fi
++
+ # Linking blobs from all partitions:
+ 
+ # Backup the preselected path, link all of the installed blobs.

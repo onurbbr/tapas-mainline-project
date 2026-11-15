@@ -1,0 +1,190 @@
+#!/bin/sh
+# Voice call audio for the Xiaomi Redmi Note 12 4G (tapas).
+#
+# Adapted from fogona-voice-call-watch of the Motorola fogona port, which
+# runs on the same SoC and works around the same limitation: the ADSP owns
+# the call. The DSP runs stock's voice graphs, the downlink is read from the
+# playback backend and the uplink is written into the capture backend, so
+# both backends have to be open for the whole call even though nothing on
+# the AP side carries the call audio itself.
+#
+# What this loop does, once per state change:
+#
+#   call starts  - suspend the desktop's sinks (they would fight for hw:0,0),
+#                  keep hw:0,0 running with /dev/zero, select the earpiece or
+#                  both amplifiers following callaudiod's SpeakerState, route
+#                  both handset microphones into the capture backend, keep
+#                  hw:0,3 running, then attach the voice graphs through the
+#                  kernel's q6apm-voice-poc debugfs file.
+#   call ends    - detach the graphs, release both PCMs, restore the HiFi
+#                  output and rebuild the desktop's card profile.
+#
+# callaudiod (D-Bus, started on demand) switches the card to the "Voice Call"
+# profile when a call begins and back to HiFi when it ends. Its in-call
+# speaker toggle is a port switch, and the Voice Call profiles have a single
+# port, so it reports success without switching anything; SpeakerState is
+# followed here instead and the amplifier switches are driven directly.
+
+set -eu
+
+ctl=/sys/kernel/debug/q6apm-voice/ctl
+card=platform-sound
+
+log() { echo "tapas-voice-watch: $*" > /dev/kmsg; }
+
+# The driver is a module so that it can be reloaded without a reboot. There
+# is no kmod on this image, hence insmod on the path depmod recorded.
+load_module() {
+	[ -e "$ctl" ] && return 0
+	mod=$(find "/lib/modules/$(uname -r)" -name 'q6apm-voice-poc.ko*' 2>/dev/null | head -n 1)
+	if [ -z "$mod" ]; then
+		log "q6apm-voice-poc module not installed"
+		return 1
+	fi
+	[ -x /usr/sbin/insmod ] || {
+		log "insmod not available"
+		return 1
+	}
+	/usr/sbin/insmod "$mod" 2>/dev/null || true
+	i=0
+	while [ ! -e "$ctl" ] && [ "$i" -lt 40 ]; do
+		sleep 0.25
+		i=$((i + 1))
+	done
+	[ -e "$ctl" ] || { log "q6apm-voice/ctl did not appear"; return 1; }
+	log "q6apm-voice-poc loaded"
+}
+
+# Every logged in session that runs a sound server. On this device that is
+# the normal user plus the greeter.
+each_session() {
+	for d in /run/user/*; do
+		[ -S "$d/bus" ] || continue
+		u=$(stat -c %U "$d")
+		su -s /bin/sh "$u" -c "export XDG_RUNTIME_DIR=$d; $1" || true
+	done
+}
+
+suspend_sinks() {
+	each_session "for s in \$(pactl list sinks short 2>/dev/null | cut -f2 | grep alsa_output); do pactl suspend-sink \$s $1; done"
+}
+
+# callaudiod switches the card back to HiFi on hangup, usually before this
+# loop notices the call is gone. The new HiFi node then fails to open hw:0,0
+# because our aplay still holds it, and WirePlumber drops it for good: no
+# output until the profile changes again. Going through "off" and back
+# recreates the node once the PCMs are released; setting the same profile
+# again is not reliably enough.
+reapply_profile() {
+	each_session "p=\$(pactl list cards 2>/dev/null | sed -n 's/^[[:space:]]*Active Profile: //p' | head -n1); [ -n \"\$p\" ] && pactl set-card-profile $card off && pactl set-card-profile $card \"\$p\""
+}
+
+# Both handset microphones into the capture backend, one per decimator:
+# channel 0 is the handset microphone on AMIC1 (ADC1, SWR_MIC0), channel 1
+# the top microphone on AMIC3 (ADC2 on INP3, SWR_MIC4). This is stock's
+# handset-mic path with DEC1 carrying the second microphone instead of DEC2,
+# because the backend runs a two channel mask.
+#
+# Capture runs on MultiMedia4 / TX_CODEC_DMA_TX_3. MultiMedia3 is wired to
+# the same backend in the topology but only the MultiMedia4 pairing produces
+# data on this board.
+mic_path() {
+	for c in \
+		"MultiMedia4 Mixer TX_CODEC_DMA_TX_3=1,1" \
+		"MultiMedia3 Mixer TX_CODEC_DMA_TX_3=0,0" \
+		"TX DEC0 MUX=SWR_MIC" \
+		"TX SMIC MUX0=SWR_MIC0" \
+		"TX_AIF1_CAP Mixer DEC0=1" \
+		"ADC1_MIXER Switch=1" \
+		"ADC1 Switch=1" \
+		"ADC1 Volume=12" \
+		"TX DEC1 MUX=SWR_MIC" \
+		"TX SMIC MUX1=SWR_MIC4" \
+		"TX_AIF1_CAP Mixer DEC1=1" \
+		"ADC2 MUX=INP3" \
+		"ADC2_MIXER Switch=1" \
+		"ADC2 Switch=1" \
+		"ADC2 Volume=12"; do
+		amixer -c0 -q cset name="${c%=*}" "${c##*=}" || log "amixer failed: $c"
+	done
+}
+
+# callaudiod publishes the in-call speaker toggle as SpeakerState on the
+# session bus. setpriv rather than su: su's PAM session costs over a second
+# per call while this runs every half second.
+speaker_state() {
+	for d in /run/user/*; do
+		[ -S "$d/bus" ] || continue
+		u=$(stat -c %U "$d")
+		setpriv --reuid="$u" --regid="$u" --init-groups \
+			env DBUS_SESSION_BUS_ADDRESS="unix:path=$d/bus" \
+			busctl --user get-property org.mobian_project.CallAudio \
+			/org/mobian_project/CallAudio org.mobian_project.CallAudio \
+			SpeakerState 2>/dev/null | grep -q "^u 1$" && { echo 1; return; }
+	done
+	echo 0
+}
+
+# 1: both amplifiers, as the HiFi verb; 0: the earpiece alone. The two hang
+# off separate RDACs (the receiver on EAR_RDAC, the loudspeaker on AUX_RDAC),
+# so either combination is possible without disturbing the data path. The
+# downlink is mono and lands on both channels, so each amplifier carries all
+# of it.
+set_output() {
+	if [ "$1" = 1 ]; then
+		amixer -c0 -q cset name="AUX_RDAC Switch" 1
+		amixer -c0 -q cset name="Speaker Switch" 1
+	else
+		amixer -c0 -q cset name="Speaker Switch" 0
+		amixer -c0 -q cset name="AUX_RDAC Switch" 0
+	fi
+	amixer -c0 -q cset name="Receiver Switch" 1
+	amixer -c0 -q cset name="EAR_RDAC Switch" 1
+	spk=$1
+}
+
+load_module || exit 1
+
+on=0
+spk=-1
+while true; do
+	if mmcli -m any --voice-list-calls 2>/dev/null | grep -q "(active)"; then
+		if [ $on = 0 ]; then
+			suspend_sinks 1
+			# Keep the playback backend running: the voice downlink is
+			# read from it, and it owns the codec clocks.
+			amixer -c0 -q sset "RX_CODEC_DMA_RX_0 Audio Mixer MultiMedia1" on
+			set_output "$(speaker_state)"
+			aplay -q -D hw:0,0 -f S16_LE -r 48000 -c 2 /dev/zero &
+			apid=$!
+			# The uplink: voice TX reads the capture backend's splitter.
+			mic_path
+			arecord -q -D hw:0,3 -f S16_LE -r 48000 -c 2 /dev/null &
+			rpid=$!
+			sleep 0.5
+			if echo start >"$ctl"; then
+				log "call active: graphs attached"
+			else
+				log "call active: start failed"
+			fi
+			on=1
+		else
+			s=$(speaker_state)
+			if [ "$s" != "$spk" ]; then
+				set_output "$s"
+				log "speaker $s"
+			fi
+		fi
+	elif [ $on = 1 ]; then
+		echo stop >"$ctl" 2>/dev/null || true
+		kill $apid $rpid 2>/dev/null || true
+		wait $apid $rpid 2>/dev/null || true
+		set_output 1
+		suspend_sinks 0
+		reapply_profile
+		log "call gone: graphs detached"
+		on=0
+		spk=-1
+	fi
+	sleep 0.5
+done
