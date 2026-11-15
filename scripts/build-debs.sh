@@ -39,8 +39,8 @@ ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 # ---------------------------------------------------------------- config ---
 # When updating, change ONLY this section.
-KVER="7.3.0-sm6225-upstream+"     # uname -r; must MATCH lib/modules/<KVER> inside modules.tar.gz
-KPKG_VER="7.3.0-1+tapas1"         # linux-image-tapas + linux-modules-tapas Debian package version
+KVER="${KVER:-}"                  # uname -r; detected from modules.tar.gz when empty
+KPKG_VER="${KPKG_VER:-}"          # Debian package version; derived from KVER when empty
 FW_VER="20271019-2+tapas1"       # firmware-xiaomi-tapas Debian package version
 DEV_VER="0.1-1+tapas1"           # device-xiaomi-tapas Debian package version
 DTB="sm6225-xiaomi-tapas.dtb"     # kernel DTB filename
@@ -68,7 +68,35 @@ detect_kver_in_tarball() {
         | sed -E 's#^lib/modules/([^/]+)/?#\1#'
 }
 
+# The local version that kernelrelease appends through CONFIG_LOCALVERSION.
+LOCALVERSION_SUFFIX="-sm6225-upstream"
+
+# 7.4.0-rc1-sm6225-upstream+ -> 7.4.0-rc1-1+tapas1
+debver_from_kver() {
+    local v="${1%"$LOCALVERSION_SUFFIX"*}"
+    printf '%s-1+tapas1' "${v%+}"
+}
+
+# Fill in KVER and KPKG_VER from the build output, so that moving to a new
+# kernel release does not need this script edited. modules.tar.gz carries
+# lib/modules/<KVER>, which is what the kernel actually calls itself.
+resolve_kernel_version() {
+    local in_tar
+
+    if [[ -z "$KVER" ]]; then
+        need_file "$STAGING/kernel/modules.tar.gz"
+        in_tar="$(detect_kver_in_tarball)"
+        [[ -n "$in_tar" ]] || die "lib/modules/<ver> not found inside modules.tar.gz"
+        KVER="$in_tar"
+    fi
+    if [[ -z "$KPKG_VER" ]]; then
+        KPKG_VER="$(debver_from_kver "$KVER")"
+        [[ -n "$KPKG_VER" ]] || die "cannot derive a package version from KVER=$KVER"
+    fi
+}
+
 check_kernel_inputs() {
+    resolve_kernel_version
     need_file "$STAGING/kernel/Image"
     need_file "$STAGING/kernel/$DTB"
     need_file "$STAGING/kernel/sm6225_defconfig"
@@ -343,6 +371,7 @@ EOF
 
 # ------------------------------------------------------- device package ----
 build_device() {
+    resolve_kernel_version
     local root="$STAGING/device"
     local ucm="$root/usr/share/alsa/ucm2/Qualcomm/sm6225/tapas"
     local pkgdir="$STAGING/pkg-device"

@@ -161,15 +161,15 @@ log "Building initramfs (includes tapas-firmware hook)"
 chroot "$MNT" update-initramfs -c -k "$KERNEL"
 
 # --- 5) boot.scr + fstab + hostname + user ---------------------------------
-log "Writing boot.scr (root=UUID=$UUID)"
-cat > "$MNT/boot/boot.cmd" <<'EOF'
-setenv bootargs "clk_ignore_unused pd_ignore_unused root=UUID=__UUID__ rootwait rw"
-load scsi 0:13 ${kernel_addr_r} /boot/vmlinuz-__KERNEL__
-load scsi 0:13 ${fdt_addr_r} /boot/dtbs/sm6225-xiaomi-tapas.dtb
-load scsi 0:13 ${ramdisk_addr_r} /boot/initrd.img-__KERNEL__
-booti ${kernel_addr_r} ${ramdisk_addr_r}:${filesize} ${fdt_addr_r}
-EOF
-sed -i "s/__UUID__/$UUID/g; s/__KERNEL__/$KERNEL/g" "$MNT/boot/boot.cmd"
+# boot.cmd in the repository is the only definition of the boot script: it
+# probes UFS and microSD, works out the root filesystem's UUID at boot time and
+# needs nothing filled in but the kernel version. Keeping a second copy here
+# is how the version ended up baked into the file in the first place.
+log "Writing boot.scr (root=UUID=$UUID, kernel: $KERNEL)"
+sed "s/__KERNEL__/$KERNEL/g" "$ROOT_DIR/boot.cmd" > "$MNT/boot/boot.cmd"
+if grep -q '__KERNEL__' "$MNT/boot/boot.cmd"; then
+    die "boot.cmd still carries __KERNEL__ after substitution"
+fi
 mkimage -C none -A arm64 -T script \
     -d "$MNT/boot/boot.cmd" \
     "$MNT/boot/boot.scr"

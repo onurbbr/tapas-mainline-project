@@ -1,3 +1,8 @@
+# Template for /boot/boot.scr: __KERNEL__ is replaced with the version of the
+# kernel that was installed into the image, which scripts/build-image.sh does.
+# Nothing else in here is board or version specific, so a new kernel release
+# only needs a rebuild.
+#
 # One boot script for both UFS (scsi) and microSD (mmc).
 # Check which partition actually contains this boot script instead of
 # trusting a hardcoded device: try UFS first, then microSD.
@@ -41,7 +46,7 @@ if test -z "${rootarg}"; then
 fi
 
 setenv bootargs "clk_ignore_unused pd_ignore_unused ${rootarg} rootwait rw"
-load ${kernel_dev} ${kernel_part} ${kernel_addr_r} /boot/vmlinuz-7.3.0-sm6225-upstream+
+load ${kernel_dev} ${kernel_part} ${kernel_addr_r} /boot/vmlinuz-__KERNEL__
 load ${kernel_dev} ${kernel_part} ${fdt_addr_r} /boot/dtbs/sm6225-xiaomi-tapas.dtb
-load ${kernel_dev} ${kernel_part} ${ramdisk_addr_r} /boot/initrd.img-7.3.0-sm6225-upstream+
+load ${kernel_dev} ${kernel_part} ${ramdisk_addr_r} /boot/initrd.img-__KERNEL__
 booti ${kernel_addr_r} ${ramdisk_addr_r}:${filesize} ${fdt_addr_r}
