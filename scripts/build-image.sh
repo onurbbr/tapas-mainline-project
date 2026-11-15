@@ -5,6 +5,9 @@
 # Assumes debs/ is already populated (run build.sh debs first).
 # ROOT_DIR is passed via env when invoked from build.sh.
 #
+# The account created in the image defaults to user:0000. Set TAPAS_USER and
+# TAPAS_PASSWORD to change it; build.sh forwards both.
+#
 # Can also be run standalone (requires root):
 #   cd ~/package && sudo bash scripts/build-image.sh
 #
@@ -25,6 +28,22 @@ SIZE_MB=8192
 
 log() { printf '\n==> [build-image] %s\n' "$*"; }
 die() { echo "ERROR: $*" >&2; exit 1; }
+
+# Account created inside the image. These come from build.sh, or from the
+# environment when this script is run on its own.
+TAPAS_USER="${TAPAS_USER:-user}"
+TAPAS_PASSWORD="${TAPAS_PASSWORD:-0000}"
+
+# The name is handed to useradd and the password to chpasswd, which splits its
+# input on the first ':'; reject what those tools cannot take before spending
+# ten minutes on debootstrap.
+printf '%s' "$TAPAS_USER" | LC_ALL=C grep -qxE '[a-z_][a-z0-9_.-]{0,31}' \
+    || die "invalid TAPAS_USER '$TAPAS_USER'"
+[ -n "$TAPAS_PASSWORD" ] || die "TAPAS_PASSWORD must not be empty"
+case "$TAPAS_PASSWORD" in
+    *:*)     die "TAPAS_PASSWORD must not contain ':'" ;;
+    *$'\n'*) die "TAPAS_PASSWORD must not contain a newline" ;;
+esac
 
 # --- pre-checks ------------------------------------------------------------
 [ "$(id -u)" -eq 0 ] || die "This script requires root. Run: sudo ./build.sh image"
@@ -60,6 +79,7 @@ log "Root UUID: $UUID"
 mount -o loop "$IMG" "$MNT"
 
 cleanup_mounts() {
+    rm -f "${CRED_FILE:-}"
     umount -R "$MNT/dev"  2>/dev/null || true
     umount -R "$MNT/proc" 2>/dev/null || true
     umount -R "$MNT/sys"  2>/dev/null || true
@@ -162,14 +182,23 @@ printf '# Debian - single ext4 rootfs\nUUID=%s / ext4 defaults 0 1\n' "$UUID" \
 
 echo debian | tee "$MNT/etc/hostname" >/dev/null
 
-log "Creating user"
-chroot "$MNT" bash -c '
-set -e
-if ! id onur >/dev/null 2>&1; then
-    useradd -m -u 1000 -s /bin/bash -G sudo onur
+log "Creating user $TAPAS_USER"
+# chpasswd reads user:password pairs from stdin. Feeding it from a file keeps
+# the password off the command line and out of ps, and leaves the quoting of
+# whatever characters it contains to printf.
+CRED_FILE="$(mktemp)"
+printf '%s:%s\n' "$TAPAS_USER" "$TAPAS_PASSWORD" > "$CRED_FILE"
+chmod 600 "$CRED_FILE"
+
+# -u 1000 keeps the seat, /run/user/1000 and the udev rules working no matter
+# what the account is called.
+if chroot "$MNT" id "$TAPAS_USER" >/dev/null 2>&1; then
+    chroot "$MNT" usermod -s /bin/bash -aG sudo "$TAPAS_USER"
+else
+    chroot "$MNT" useradd -m -u 1000 -s /bin/bash -G sudo "$TAPAS_USER"
 fi
-echo "onur:0000" | chpasswd
-'
+chroot "$MNT" chpasswd < "$CRED_FILE"
+rm -f "$CRED_FILE"
 
 # --- 6) cleanup ------------------------------------------------------------
 log "Cleanup"
@@ -194,7 +223,7 @@ log "Sparse image size on disk: $(du -h "$IMG_SPARSE" | cut -f1) (raw: $(du -h "
 
 log "Done: $IMG  |  sparse: $IMG_SPARSE (root UUID: $UUID)"
 echo ""
-echo "Credentials:  user: onur  /  password: 0000"
+echo "Credentials:  user: $TAPAS_USER  /  password: $TAPAS_PASSWORD"
 echo ""
 echo "Flash with:"
 echo "  fastboot flash userdata $IMG_SPARSE"

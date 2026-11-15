@@ -105,6 +105,24 @@ Kernel build products are copied into `staging/kernel/` before packaging.
 
 ---
 
+## Building an image
+
+```
+sudo ./build.sh                                  # user:user, password:0000
+sudo ./build.sh --user onur --password 1234      # your own account
+sudo ./build.sh debs                             # packages only, no root needed
+sudo ./build.sh image                            # image only
+```
+
+The account created inside the image is `user` with password `0000` unless
+`--user` / `--password` say otherwise; the same value can be given to the image
+stage on its own as `TAPAS_USER` and `TAPAS_PASSWORD`. The account is always
+created with uid 1000, so the seat, `/run/user/1000` and the udev rules are
+unaffected by the name. The password is written through `chpasswd` from a
+temporary file, so it never appears in `ps`.
+
+---
+
 ## Packages built
 
 | Package | Contents |
