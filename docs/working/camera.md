@@ -177,7 +177,8 @@ parts are an ov08a10 and a gc02m1, and neither has a mainline driver.
 
 ## 3. Vendor software stack
 
-From the vendor DT (`/tmp/work/tapas.dts`) and the `/vendor`, `/vendor_dlkm`
+From the vendor DT (`sources/forensics/tapas-overlay.dts`) and the
+`/vendor`, `/vendor_dlkm`
 images:
 
 ```
@@ -506,16 +507,19 @@ graph needs a CPAS node.
 
 ---
 
-## 9. Forensic sources (VM `ssh debian`)
+## 9. Forensic sources
+
+The vendor device trees were decompiled once and checked in under
+`sources/forensics/`, so nothing here depends on a scratch directory any more.
+`images/` on the build machine holds the originals.
 
 | Path | Contents |
 |---|---|
-| `/home/onur/Projects/Debian/development/images/fdt` | merged Tapas DT |
-| `.../dtbo.img` | 49 overlays; **entry45** = tapas (`board-id 20022,0`, `msm-id 0x206`) |
-| `.../vendor_boot.img` | embeds the base Khaje/SM6225 SoC DT |
-| `/tmp/work/fdt.dts` | 16 098 lines, readable DT |
-| `/tmp/work/tapas.dts` | 3 533 lines, the Tapas overlay (camera nodes live here) |
-| `/tmp/work/vb.dts` | base SoC DT |
+| `sources/forensics/merged-fdt.dts` | 16 098 lines, the merged Tapas DT |
+| `sources/forensics/tapas-overlay.dts` | 3 533 lines, the Tapas overlay (camera nodes live here) |
+| `sources/forensics/base-soc.dts` | the base Khaje/SM6225 SoC DT |
+| `images/dtbo.img` | 49 overlays; **entry 45** = tapas (`board-id 20022,0`, `msm-id 0x206`) |
+| `images/vendor_boot.img` | embeds the base SoC DT |
 | `/mnt/vendor`, `/mnt/vdlkm` | ro loop mounts; `camera.ko`, `leds-qti-flash.ko` |
 
 ---

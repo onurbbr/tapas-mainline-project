@@ -88,8 +88,16 @@ staging/device/           install tree, copied verbatim into device-xiaomi-tapas
   usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf
   usr/share/u-boot-menu/conf.d/tapas.conf
 
-staging/status.md         current state of the port
-staging/issues/           per-topic detail: microphone, proximity, camera
+docs/                     what works and what does not, with the detail
+  README.md               index of the two lists
+  status.md               kernel trees, hardware tested, firmware notes
+  working/                audio, camera, video decode
+  not-working/            proximity, voice call, macro camera, autofocus
+
+sources/forensics/        vendor device trees, decompiled once and kept here
+  merged-fdt.dts          the merged Tapas DT, 16 098 lines
+  tapas-overlay.dts       the Tapas overlay, 3 533 lines
+  base-soc.dts            the base Khaje/SM6225 SoC DT
 ```
 
 `staging/kernel/`, `debs/` and `images/` are **not** tracked; see `.gitignore`.
@@ -170,15 +178,26 @@ start ~10 ms apart and proximity is lost for the whole session.
 
 ## Status
 
-See `staging/status.md` for details. Short version:
+See `docs/README.md` for the per-topic detail and `docs/status.md` for the
+long version. Short version:
 
 | Topic | Status |
 |---|---|
-| Boot, display, UFS, audio playback, haptics | working |
+| Boot, display, touch, UFS, haptics, charging | working |
+| Audio playback | working: speaker, headphones on jack, earpiece |
+| Microphone | working: handset and top mic together, headset boom on jack |
 | Sensors: accelerometer, ambient light, compass | working |
-| Microphone | working, single mic, mono; second mic open |
+| Camera | rear main, front and ultra wide capture RAW frames |
+| Camera lens | `focus_absolute` moves the lens; no autofocus in userspace |
+| Video decode | working: H.264, HEVC and VP9 through iris |
 | Proximity | visible, but never reports `NEAR` |
-| Camera | not working; mainline CAMSS has no SM6225/CPAS support |
+| Rear macro camera | sensor probes, no frames |
+| Voice call | parked; the DSP rejects the voice graph |
+
+Two kernel trees exist. `Kernels/linux-7.4`, branch `sm6225-tapas`, based on
+v7.4-rc1, is the one to work on from now on; everything above was last
+measured with a 7.3 image, and the 7.4 tree builds but has not been installed
+on the device yet. `Kernels/linux-7.3`, branch `sm6225`, is frozen.
 
 Haptics are binary on/off: the enable GPIO is the only control, both in the
 vendor driver and in `gpio-vibrator`, so there is no amplitude modulation to

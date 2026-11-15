@@ -329,4 +329,4 @@ regression.
    never been tried; the device tree route is in place but no UCM device uses
    it.
 2. Speaker protection / ACDB calibration is a separate topic.
-3. Voice call audio is blocked on the DSP side, see `issues/voice-call.md`.
+3. Voice call audio is blocked on the DSP side, see [the voice call notes](../not-working/voice-call.md).
