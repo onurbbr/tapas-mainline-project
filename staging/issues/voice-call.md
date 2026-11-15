@@ -1,5 +1,9 @@
 # Voice call audio
 
+**Status:** PARKED (2026-11-10) · the DSP accepts the graph but rejects
+`GRAPH_PREPARE`, so no audio flows · everything needed to resume is in
+`sources/tapas-voice-poc/`
+
 Status: **open, blocked on a missing kernel/userspace graph builder**
 
 Media playback and capture work. Call audio does not, and this document
@@ -216,7 +220,41 @@ the modifiers are only reachable through `alsaucm`. A daemon that owns the
 call state would issue those commands itself; nothing in the desktop stack
 does it today.
 
-## 10. Not verified
+## 10. Where it stopped (2026-11-10)
+
+A proof of concept was written and measured on the device before being parked.
+
+What the DSP accepted, all on a clean boot:
+
+- `GRAPH_OPEN` of the voice RX and TX graphs.
+- The VCPM parameters: VSID `0x11c05000`, TX channel map, calibration keys.
+- The MFC output format.
+- A media format written directly to the CODEC DMA sink.
+
+What it refused: `GRAPH_PREPARE` of the RX graph, answered with a bare DSP
+failure (`error[1001001]`) and `-22`. The remaining suspect is that the graph
+carries stock's device sub-graph (`0xb000002a`), whose CODEC DMA sink belongs
+to the playback graph this card already owns — the fogona port avoids exactly
+that by dropping the sub-graph and bridging into its own topology instead.
+
+Other things measured, worth knowing before resuming:
+
+- A failed `start` leaves the DSP in a sticky state: a second attempt on the
+  same boot fails at `GRAPH_OPEN` even with a blob that worked before. Every
+  meaningful test needs a reboot.
+- The voice graph will not open while any ALSA PCM on the card is open, which
+  is the opposite of what the fogona port reports.
+- APM does not validate cross-graph edges: pointing a bridge at an instance
+  that does not exist still returns success, so a green `start` proves nothing
+  about the bridge.
+
+All of the code, blobs, tooling and the two user-space patches (libqmi and
+ModemManager pre-alerting) live in `sources/tapas-voice-poc/`; its `README.md`
+has the resume plan.
+
+---
+
+## 11. Not verified
 
 No call has been placed with any of the above. All statements about the
 firmware are from string scans, device sysfs listings and file format

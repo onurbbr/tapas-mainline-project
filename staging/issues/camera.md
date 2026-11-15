@@ -1,12 +1,17 @@
 # Tapas — camera
 
-**Status:** PARTIAL · rear main camera captures RAW frames · three sensors
-and the ISP stage still open
-**Last updated:** 2026-11-04 · kernel `7.3.0-sm6225-upstream+`, branch `sm6225`
-**Related commits:** 51 (`9814a087230b` — FSM legacy mode in the Trion
-configure path), 52 (`764d4cdf7844` — GPLL10/GPLL11 as Lucid PLLs),
-53 (`d066ce363a18` — CAMSS SM6225 support), 54 (`c2ef6f64c443` — tapas rear
-camera pipeline), 43/44 (`d81b1c7cc4b8`, `cd989c720f3d` — wl2866d)
+**Status:** PARTIAL · rear main, front and ultra wide capture RAW frames ·
+macro sensor and the ISP stage still open
+**Last updated:** 2026-11-10 · kernel `7.3.0-sm6225-upstream+`, branch `sm6225`
+**Related commits** (branch `sm6225`, 104 commits in total): `9814a087230b`
+FSM legacy mode in the Trion configure path · `764d4cdf7844` GPLL10/GPLL11 as
+Lucid PLLs · `d066ce363a18` CAMSS SM6225 support · `c2ef6f64c443` rear main
+camera wiring · `41d720cee42c`+`478e5c4f4c83` S5K3L6 binding and driver ·
+`c0619a7c3fac`+`dbfd5fec0cc4` front camera · `a27881d40978` front facing ·
+`5d95520d1810` ultra wide · `73bf5c2798bd` S5KJN1 virtual channel and crop ·
+`e2f1525e7b51` GT9764 · `529cfda5a524` KTD2691 · `2e3bb88853a3` EEPROM, focus
+and flash · `62be2bfb720a` rear rotation · `d81b1c7cc4b8`+`cd989c720f3d`
+wl2866d · `b15ad95c5241` dma-buf heap
 
 ---
 
@@ -32,9 +37,23 @@ What was needed:
 3. **Device tree:** the PHY rails had to move from the SoC dtsi to the
    board, and the sensor and CSIPHY0 endpoints had to be connected.
 
-Still open: the front, ultra wide and macro modules (mainline has no driver
-for the S5K3L6, OV08A10 or GC02M1 that are actually fitted), the ISP/3A
-stage, autofocus, flash, and the EEPROMs.
+Where the four modules stand:
+
+| Module | Role | State |
+|---|---|---|
+| S5KJN1 | rear main | **works** — RAW10, binned 4080x3072 (30 fps) and full 8160x6144 (10 fps) |
+| S5K3L6 | front | **works** — RAW8 2104x1560, driver written for this port |
+| OV08D10 | ultra wide | **works** — RAW10 3264x2448, upstream driver |
+| GC02M1 | macro | **does not work** — probes and reports streaming, no frame ever arrives; parked |
+
+Also in place: the VAF actuator (Giantec GT9764), the rear main EEPROM
+(24C256 class), the flash LED (Kinetic KTD2691), mounting rotation for the
+three working modules, and libcamera tuning generated from the vendor
+chromatix blobs.
+
+Still open: the macro sensor, the ISP/3A stage, autofocus in userspace,
+line-based RDI programming, and the calibration data the vendor keeps in the
+EEPROMs.
 
 ---
 
@@ -323,21 +342,50 @@ wl2866d: pmic@28 {
 };
 ```
 
-The rails are `always-on` because there is **no consumer yet** (there are no
-sensor nodes). Once the sensors are wired up, `always-on` should be removed and
-real `*-supply` references given.
+The rails are `always-on`: the sensors do reference them now, but no rail is
+ever switched between captures, so a rail shared by two modules cannot be
+handled per module. Splitting that properly needs a supply consumer per rail
+and was left alone.
 
-### Flash LED — undetermined
+### Flash LED — Kinetic KTD2691 on CCI1
 
-- The mainline driver is `drivers/leds/flash/leds-qcom-flash.c`, compatible
-  **`qcom,spmi-flash-led`**.
-- The vendor DT has **no** `qcom,spmi-flash-led` node, only `qcom,camera-flash`.
-- The vendor side works through `leds-qti-flash.ko`.
-- Which PMIC carries the LED **has not been determined**. Physical PMIC
-  inventory: `qcom,pm6125` (15 references), `qcom,pm8008` (47 references),
-  `qcom,pm8941` (1, RTC only). There is no pmi632/pm6150l-style flash node.
+It is not a PMIC peripheral at all. The LED driver sits on a camera I2C bus as
+a KTD2691 at 7-bit address `0x64`, which is why the merged vendor DT contains
+no `qcom,spmi-flash-led` node. A driver was written for it
+(`drivers/leds/flash/leds-ktd2691.c`, commit `529cfda5a524`).
 
-Flash should be handled as a separate sub-task once the camera works.
+- Torch: 46 steps, `(code + 1) * 376 / 128` mA per the datasheet. The board
+  declares `led-max-microamp = <132000>` (vendor code `0x2c`), so the top step
+  is about 135 mA.
+- The first version scaled against the chip's full 376 mA range and drove 2.8x
+  the vendor current at maximum brightness. That was corrected to scale against
+  the declared maximum.
+- Flash: 504 mA for 200 ms, deliberately below the vendor's 1019 mA / 1000 ms.
+- Only registration and the torch step table were verified. The LED has not
+  been fired.
+
+### The modules and their accessories
+
+| Part | Bus / address | Notes |
+|---|---|---|
+| S5KJN1 (rear main) | CCI0 `0x10` | 4 data lanes, 700 MHz link, MCLK0 24 MHz |
+| S5K3L6 (front) | CCI1 `0x10` | 2 data lanes, 537.5/600/625 MHz, MCLK1 19.2 MHz |
+| OV08D10 (ultra wide) | CCI1 `0x36` | 2 data lanes, 720/360 MHz, MCLK2 19.2 MHz |
+| GC02M1 (macro) | CCI0 `0x37` | 1 data lane, 336 MHz, MCLK3 19.2 MHz |
+| GT9764 (VAF) | CCI0 `0x0c` | driven through `dw9719` in DW9800K mode |
+| 24C256 (rear EEPROM) | CCI0 `0x51` | `atmel,24c256`, 32 KiB |
+| KTD2691 (flash) | CCI1 `0x64` | torch and flash LED |
+
+The VAF supply is a `regulator-fixed` on TLMM101 at 1.8-2.8 V, not a PM8008
+regulator: the vendor DT turns the PM8008 nodes off, and they do not answer on
+I2C. The lens parks at the vendor's initial DAC value of 367, which is what
+untouched applications get.
+
+Mounting: the rear main and the front module are both turned 90 degrees
+counter-clockwise against the phone body (`rotation = <90>`), and the ultra
+wide has its pixel array the other way round (`rotation = <270>`). The front
+module is `orientation = <0>` so that applications mirror its preview; the
+other two are `<1>`.
 
 ---
 
@@ -366,15 +414,16 @@ STREAMON with `-EBUSY`, and needed the PLL work before a frame came out.
 2. Flash LED: still undetermined; no `qcom,spmi-flash-led` node exists in the
    vendor DT.
 
-### Stage 1 — CCI + sensor probe (DONE for the rear main)
+### Stage 1 — CCI + sensor probe (DONE for rear main, front and ultra wide)
 
-3. CCI child nodes: added for the rear main sensor only.
+3. CCI child nodes: rear main (CCI0 `0x10`), front (CCI1 `0x10`), ultra wide
+   (CCI1 `0x36`), actuator (CCI0 `0x0c`) and the rear main EEPROM (CCI0 `0x51`).
 4. MCLK pinctrl states: added, all four.
-5. VAF actuator and `cam_vaf_2p8`: **not** added.
-6. `wl2866d` rails are wired to the rear main sensor but still `always-on`,
-   because the other three modules have no consumer.
+5. VAF actuator and `cam_vaf_2p8`: **added**.
+6. `wl2866d` rails are wired and still `always-on`.
 7. Sensor driver in defconfig: `CONFIG_VIDEO_S5KJN1=y`,
-   `CONFIG_VIDEO_OV08D10`/`OV2680` were dropped again with the address sweep.
+   `CONFIG_VIDEO_S5K3L6=y`, `CONFIG_VIDEO_OV08D10=y`, `CONFIG_VIDEO_DW9719=y`,
+   `CONFIG_EEPROM_AT24=y`, `CONFIG_LEDS_KTD2691=y`, `CONFIG_RESET_GPIO=y`.
 8. `media-ctl` shows the subdev topology.
 
 ### Stage 2 — CAMSS SM6225 profile (DONE)
@@ -395,12 +444,21 @@ STREAMON with `-EBUSY`, and needed the PLL work before a frame came out.
     happen in userspace. For a "take a photo" goal that is a separate project of
     its own.
 
-### Stage 4 — remaining sensors (medium, per sensor)
+### Stage 4 — remaining sensors (DONE except the macro)
 
-15. Write drivers for S5K3L6, OV08A10 and GC02M1 — none exist in mainline.
-16. Add their CSIPHY endpoints and CSI mux handling (ultra wide and macro share
-    CSIPHY1, selected by GPIO 100).
-17. EEPROMs (four), autofocus (VAF on GPIO 101 + WL2866D) and flash.
+15. **DONE, except the macro** — the S5K3L6 driver was written for this port
+    from Vincent Cloutier's RFC series, changed to accept 19.2/24/25 MHz MCLK
+    and to compute the PLL multiplier from the link frequency instead of
+    carrying a per-mode constant. OV08D10 and OV13B10 already exist upstream.
+    The GC02M1 driver was ported and probes, but no frame ever leaves it; the
+    work is parked in `sources/tapas-macro-wip/`.
+16. **DONE** — CSIPHY endpoints for CSIPHY0 (rear main), CSIPHY1 (ultra wide)
+    and CSIPHY2 (front). The CSI lane mux on GPIO 100 is driven high by a
+    gpio-hog. Mainline CAMSS has no mux model, so the ultra wide and the macro
+    cannot both be described at once, which is one of the macro blockers.
+17. **DONE** — rear main EEPROM (`atmel,24c256`, 32 KiB proven by the address
+    wrap-around), autofocus (GT9764 through `dw9719`, `focus_absolute` 0..1023,
+    parked at 367 at boot) and flash (KTD2691).
 
 ### Known gap in the capture path
 
@@ -417,10 +475,11 @@ programming for this; that has not been done here.
 | Stage | Difficulty | State |
 |---|---|---|
 | 0 — inventory | Easy | done |
-| 1 — CCI + rear sensor | Medium | done |
+| 1 — CCI + sensors | Medium | done for rear main, front and ultra wide |
 | 2 — CAMSS profile | **Hard** | done; the PLL was the hard part |
-| 3 — userspace | Medium | raw capture works, colour pipeline open |
-| 4 — remaining sensors | Medium each | needs three new sensor drivers |
+| 3 — userspace | Medium | debayered preview works; autofocus open |
+| 4 — remaining sensors | Medium each | done except the macro module |
+| 5 — ISP/3A | **Very hard** | not started; libcamera's software ISP stands in |
 
 The CPAS worry turned out not to matter for a single sensor RDI capture: the
 TFE writes to memory through the SMMU and the ICC paths, and nothing in the
@@ -435,7 +494,10 @@ graph needs a CPAS node.
 | `drivers/media/platform/qcom/camss/camss.c` | SM6225 profile goes here |
 | `drivers/media/platform/qcom/camss/camss-vfe-340.c` | TFE 340 hw_ops (present) |
 | `drivers/i2c/busses/i2c-qcom-cci.c` | CCI (`cci_v2_data`, msm8996 fallback) |
-| `drivers/media/i2c/{s5kjn1,ov08d10,ov13b10,ov2680}.c` | existing sensor drivers |
+| `drivers/media/i2c/{s5kjn1,ov08d10,ov13b10,ov2680}.c` | upstream sensor drivers |
+| `drivers/media/i2c/s5k3l6.c` | front camera, written for this port |
+| `drivers/media/i2c/dw9719.c` | VAF, with the GT9764 compatible added |
+| `drivers/leds/flash/leds-ktd2691.c` | flash LED |
 | `arch/arm64/boot/dts/qcom/sm6225.dtsi` | `camss@5c11000`, `cci@5c1b000` nodes |
 | `arch/arm64/boot/dts/qcom/sm6225-xiaomi-tapas.dts` | sensor/EEPROM/actuator/flash nodes go here |
 | `drivers/regulator/wl2866d-regulator.c` | camera PMIC (commit 43) |
@@ -464,7 +526,19 @@ graph needs a CPAS node.
   the unit. Debayering, colour, exposure control and autofocus were not.
 - The `wl2866d` rails are currently `always-on` — a deliberate temporary state
   that should be removed once all four modules have consumers.
-- Sensor drivers are limited to those present in mainline (`s5kjn1`, `ov08d10`,
-  `ov13b10`, `ov2680`); `s5k3l6`, `gc02m1` and `hi259` would need drivers
-  written from scratch, and the parts actually fitted are S5K3L6, OV08A10 and
-  GC02M1.
+- Sensor drivers: `s5kjn1`, `ov08d10`, `ov13b10` and `ov2680` are upstream;
+  `s5k3l6` was written for this port; `gc02m1` and `hi259` have none. The parts
+  actually fitted are S5KJN1, S5K3L6, OV08D10 and GC02M1.
+- Autofocus works at the kernel level — `focus_absolute` moves the lens and the
+  centre-of-frame sharpness changes — but libcamera 0.7.2's software IPA
+  exposes no AF controls at all, so applications cannot drive it. The lens is
+  parked at the vendor's initial position so that applications which never
+  touch focus still get a usable image.
+- Colour: `tools/go-chromatix2libcamera` converts the vendor chromatix blobs
+  into libcamera tuning files, installed as
+  `/usr/share/libcamera/ipa/simple/{s5kjn1,s5k3l6,ov08d10}.yaml`. Only
+  `BlackLevel`, `Awb`, `Ccm`, `Adjust` and `Agc` load in libcamera 0.7.2;
+  `Lsc`, `Denoise`, `Sharpen` and `Af` make the IPA fail to initialise.
+- The rear main sensor is driven over the same pipeline as the others, so
+  selecting the wrong pixel format fails loudly: `pgAA` is the packed GRBG10
+  one that matches `SGRBG10_1X10`, and `BG10` is BGGR and returns `-EPIPE`.

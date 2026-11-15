@@ -2,7 +2,10 @@
 
 Xiaomi Redmi Note 12 4G (tapas / SM6225) mainline port.
 
-- Kernel branch: `sm6225`, based on `c03c1a14507d` (Linux v7.3), 54 commits
+- Kernel branch: `sm6225`, based on `c03c1a14507d` (Linux v7.3), 104 commits
+- Prepared for 7.4: branch `sm6225-tapas` under `Kernels/linux-7.4`, based on
+  7.4-rc1, 81 commits, pushed to `gitlab.nura.eco`; it stays parked until 7.4
+  stabilises
 - Running kernel on device: `7.3.0-sm6225-upstream+`
 - Distribution: Debian, booting from SD card (Android on the other boot slot)
 
@@ -16,8 +19,9 @@ Per-topic details, measurements and dead ends live in `issues/`.
 |---|-------|--------|---------|------|------|
 | 1 | Microphone (capture) | **WORKING** — handset + top microphone together, headset microphone on jack | Third microphone input (ADC3) untested | Small | `issues/microphone.md` |
 | 2 | Proximity sensor | **PARTIAL** — visible, never changes state | Raw `distance` reported by the DSP is in the 12–17 range; thresholds are 95/50 | Medium, uncertain | `issues/proximity.md` |
-| 3 | Camera | **PARTIAL** — rear main camera streams RAW frames; front/ultra/macro and the ISP stage open | No mainline drivers for S5K3L6, OV08A10 or GC02M1; no ISP/3A | Large | `issues/camera.md` |
-| 4 | Voice call | **OPEN** — UCM verb ready, no call audio | Firmware exposes only AudioReach VCPM, no legacy APR; mainline has no VCPM graph builder. The `Voice Call` verb (single `Call` endpoint plus speaker/headset modifiers) is written and its routing verified, but the DSP voice graph cannot be opened yet | Large | `issues/voice-call.md` |
+| 3 | Camera | **PARTIAL** — rear main, front and ultra wide capture RAW frames | Macro sensor driver does not produce frames; no ISP/3A; no autofocus in userspace; RDI is frame based | Large | `issues/camera.md` |
+| 4 | Video decode | **WORKING** — H.264, HEVC and VP9 through `iris` | none | — | this file |
+| 5 | Voice call | **PARKED** — no call audio | The DSP rejects `GRAPH_PREPARE` on the voice graph; the work is archived in `sources/tapas-voice-poc/` | Large | `issues/voice-call.md` |
 
 None of these are regressions. They were either deliberately out of scope for the
 initial port or have no mainline counterpart yet.
@@ -135,36 +139,76 @@ ADSP boot, so a normal reboot is required; `remoteproc` stop/start is forbidden.
 
 ## 3. Camera
 
-The rear main camera **works**: `/dev/video0` streams a 8160x6144 RAW10 frame.
-The frame is raw Bayer with no ISP behind it, so it needs debayering and white
-balancing in userspace.
+Three of the four cameras **work**: rear main (S5KJN1), front (S5K3L6) and
+ultra wide (OV08D10) all stream raw Bayer frames. The macro module (GC02M1)
+probes and even reports itself as streaming, but no frame ever arrives.
 
-- Four cameras, all on CCI: rear main (S5KJN1), front (S5K3L6), rear ultra
-  (OV08A10), rear macro (GC02M1). The vendor ships several module variants per
-  role, but the parts measured on this unit are the ones listed.
-- CAMSS now has a `CAMSS_6225` profile. The TFE really is `vfe_ops_340`, but the
+- CAMSS has a `CAMSS_6225` profile. The TFE really is `vfe_ops_340`, but the
   CSIPHY is the SM8250 v1.2.1 core (`lane_regs_sm8250`, not the QCM2290 table),
   and the camera AXI clock needs its own rate table.
 - The blocker turned out to be the PLL, not the ISP: GPLL10 was described as a
   DEFAULT_EVO PLL copied from SM6115, while SM6225 uses Lucid and also needs the
   FSM legacy mode bit cleared out of the configure path. Until both were fixed
   the TFE clock source never locked and streaming failed with `-EBUSY`/`-110`.
-- CPAS turned out not to be needed for a single sensor RDI capture.
-- `wl2866d` rails feed the rear main sensor but are still `always-on`, because
-  the other three modules have no consumer.
-- Sensor drivers: `s5kjn1`, `ov08d10`, `ov13b10` and `ov2680` exist in mainline;
-  `s5k3l6`, `gc02m1` and `hi259` do not, and the fitted front/ultra/macro parts
-  are S5K3L6, OV08A10 and GC02M1.
+- CPAS turned out not to be needed for a sensor RDI capture.
+- The front camera needed a new driver (`s5k3l6`, ported from an unmerged RFC
+  series); the OV08D10 driver is upstream. The macro has no driver that works.
+- Also working: the VAF actuator (Giantec GT9764 over `dw9719`), the rear main
+  EEPROM, the flash LED (Kinetic KTD2691), mounting rotation for the three
+  working modules, and libcamera tuning generated from the vendor chromatix
+  blobs.
+- There is still no ISP/3A, so colour comes from libcamera's software ISP, and
+  autofocus is reachable from the kernel but not from libcamera 0.7.2.
 
-**Next step:** write the three missing sensor drivers, then look at the ISP and
-at line-based RDI programming so a GPU can import the buffers without a copy.
+**Next step:** the macro sensor, then line-based RDI programming so a GPU can
+import the buffers without a copy, then a real autofocus algorithm.
+
+---
+
+## 4. Video decode
+
+Hardware decoding works through `iris` (`/dev/video12` decoder,
+`/dev/video13` encoder), with H.264, HEVC and VP9 all verified: a 60-frame
+640x480 stream decodes to 60 correct frames through GStreamer's `v4l2*dec`
+elements.
+
+Getting there took more than a driver swap:
+
+- The vendor `venus.mbn` speaks HFI Gen2, which the `venus` driver never
+  supported, so the node was handed to `iris` instead. `venus` skips its
+  QCM2290 compatible when `iris` is built.
+- `iris` had no AR50 LITE (the video core in this SoC) platform support; the
+  upstream AR50LT/Agatti series was applied, plus twelve fixes from the
+  Motorola fogona port.
+- The video carveout had to move to the vendor's layout, including a 7 MiB
+  `pil_video_mem`.
+- `gcc_vcodec0_gdsc` needed `HW_CTRL_TRIGGER`, otherwise `iris` fails core init
+  with `-EOPNOTSUPP`.
+- AR50 LITE firmware has no UBWC interface and answers the first UBWC property
+  with a fatal system error, so those properties are suppressed for it.
+
+---
+
+## 5. Voice call
+
+Parked. The UCM `Voice Call` verb exists and is written correctly, the modem
+registers and the call is tracked by ModemManager (with the pre-alerting state
+patch applied), and the DSP accepts the voice graph's open payload, the VCPM
+parameters and the sink format — but it rejects `GRAPH_PREPARE` on the graph,
+so no audio flows.
+
+Everything needed to resume is archived in `sources/tapas-voice-poc/`: the two
+reverted kernel commits as patches, the graph blob builder and its input
+tooling, the generated blobs, the UCM files, the watcher script and a README
+recording what was measured. See `issues/voice-call.md` for the detail.
 
 ---
 
 ## Notes
 
 - Only what was actually measured is claimed as verified. The microphones
-  work; the proximity sensor was measured but is unresolved; the camera streams
-  a raw frame but its colour path was never exercised.
+  work; the proximity sensor was measured but is unresolved; three cameras
+  stream raw frames and produce debayered images, the fourth does not; hardware
+  decode was exercised end to end; call audio does not work.
 - The device is reachable as `ssh tapas`; the build and packaging VM as
   `ssh debian`.
