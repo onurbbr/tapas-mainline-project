@@ -10,7 +10,7 @@ measurements, the things that were ruled out and the commands used; the
 
 | Tree | Branch | Base | Commits | State |
 |---|---|---|---|---|
-| `Kernels/linux-7.4` | `sm6225-tapas` | Linux v7.4-rc1 | 82 | **current** — pushed to `gitlab.nura.eco` |
+| `Kernels/linux-7.4` | `sm6225-tapas` | Linux v7.4-rc1 | 82 | **current** — pushed to [gitlab.nura.eco](https://gitlab.nura.eco/sm6225-mainline/kernels/linux/-/tree/sm6225-tapas) |
 | `Kernels/linux-7.3` | `sm6225` | Linux v7.3 | 104 | frozen — pushed to `github.com:onurbbr/linux` |
 
 The 7.4 tree is where development continues. The 7.3 tree is kept for

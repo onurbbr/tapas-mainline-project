@@ -56,7 +56,7 @@ claim is made for anything that was not actually exercised.
 
 | What | Where |
 |---|---|
-| Kernel, current tree | `sm6225-tapas` branch of [sm6225-mainline/kernels/linux](https://gitlab.nura.eco/sm6225-mainline/kernels/linux), based on Linux v7.4-rc1 |
+| Kernel, current tree | `sm6225-tapas` branch of [sm6225-mainline/kernels/linux](https://gitlab.nura.eco/sm6225-mainline/kernels/linux/-/tree/sm6225-tapas), based on Linux v7.4-rc1 |
 | Kernel, previous tree | `sm6225` branch of [onurbbr/linux](https://github.com/onurbbr/linux), based on Linux v7.3 |
 | Everything else | this repository |
 
