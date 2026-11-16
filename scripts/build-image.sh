@@ -122,6 +122,10 @@ apt update
 apt install -y initramfs-tools build-essential
 apt install -y qrtr-tools rmtfs tqftpserv protection-domain-mapper alsa-ucm-conf qcom-phone-utils zstd sudo
 apt install -y udisks2
+# alsa-utils for amixer and arecord, and for alsactl in /usr/sbin, which is not
+# on the default path; openssh-server so the device is reachable over the
+# network after a fresh flash, without a keyboard attached.
+apt install -y alsa-utils openssh-server
 '
 
 log "Timezone + locale + keyboard (Europe/Istanbul, en_US.UTF-8, us/pc105)"
