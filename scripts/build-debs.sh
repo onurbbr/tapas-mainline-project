@@ -10,7 +10,7 @@
 # When invoked from build.sh, ROOT_DIR is inherited from the environment.
 #
 # Input directories (under STAGING):
-#   staging/kernel/   : Image, sm6225-xiaomi-tapas.dtb, sm6225_defconfig, modules.tar.gz
+#   staging/kernel/   : Image, the board DTBs, sm6225_defconfig, modules.tar.gz
 #   staging/firmware/ : a complete install tree, copied verbatim into the package:
 #                         usr/lib/firmware/{aw87xxx_acf.bin, qca/, ath10k/,
 #                           qcom/{a630_sqe.fw, venus-6.0/, sm6225/{tplg,
@@ -43,7 +43,9 @@ KVER="${KVER:-}"                  # uname -r; detected from modules.tar.gz when 
 KPKG_VER="${KPKG_VER:-}"          # Debian package version; derived from KVER when empty
 FW_VER="20271019-2+tapas1"       # firmware-xiaomi-tapas Debian package version
 DEV_VER="0.1-1+tapas1"           # device-xiaomi-tapas Debian package version
-DTB="sm6225-xiaomi-tapas.dtb"     # kernel DTB filename
+# Every board id of this design gets its DTB installed: the bootloader picks
+# one by board id, and both live in the same package.
+DTBS=(sm6225-xiaomi-tapas.dtb sm6225-xiaomi-topaz.dtb)
 
 IMGPKG="linux-image-tapas"
 MODPKG="linux-modules-tapas"
@@ -98,8 +100,11 @@ resolve_kernel_version() {
 check_kernel_inputs() {
     resolve_kernel_version
     need_file "$STAGING/kernel/Image"
-    need_file "$STAGING/kernel/$DTB"
     need_file "$STAGING/kernel/sm6225_defconfig"
+    local dtb
+    for dtb in "${DTBS[@]}"; do
+        need_file "$STAGING/kernel/$dtb"
+    done
     need_file "$STAGING/kernel/modules.tar.gz"
     local in_tar
     in_tar="$(detect_kver_in_tarball)"
@@ -121,8 +126,13 @@ build_image() {
              "$pkgdir/usr/share/doc/$IMGPKG"
 
     cp "$STAGING/kernel/Image"            "$pkgdir/boot/vmlinuz-$KVER"
-    cp "$STAGING/kernel/$DTB"             "$pkgdir/boot/dtbs/"
-    cp "$STAGING/kernel/$DTB"             "$pkgdir/usr/lib/linux-image-$KVER/qcom/"
+    # /boot/dtbs is where the boot script loads from; the second copy is the
+    # location update-initramfs and any future flash-kernel hook expect.
+    local dtb
+    for dtb in "${DTBS[@]}"; do
+        cp "$STAGING/kernel/$dtb"         "$pkgdir/boot/dtbs/"
+        cp "$STAGING/kernel/$dtb"         "$pkgdir/usr/lib/linux-image-$KVER/qcom/"
+    done
     cp "$STAGING/kernel/sm6225_defconfig" "$pkgdir/usr/share/doc/$IMGPKG/"
     # Official Debian location for update-initramfs compression control.
     cp "$STAGING/kernel/sm6225_defconfig" "$pkgdir/boot/config-$KVER"
@@ -136,7 +146,8 @@ Architecture: arm64
 Depends: $MODPKG (= $KPKG_VER), zstd, initramfs-tools
 Maintainer: $MAINTAINER
 Description: Mainline kernel image for Xiaomi Redmi Note 12 4G (tapas, SM6225)
- Mainline $KVER Image + DTB (modules are in the $MODPKG package).
+ Mainline $KVER Image + the DTBs of both board ids (modules are in the
+ $MODPKG package).
  For boot with U-Boot + extlinux.
 EOF
 

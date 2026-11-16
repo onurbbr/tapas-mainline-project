@@ -112,6 +112,7 @@ sudo ./build.sh                                  # user:user, password:0000
 sudo ./build.sh --user onur --password 1234      # your own account
 sudo ./build.sh debs                             # packages only, no root needed
 sudo ./build.sh image                            # image only
+sudo ./build.sh clean                            # drop what the last run left
 ```
 
 The account created inside the image is `user` with password `0000` unless
@@ -121,6 +122,19 @@ created with uid 1000, so the seat, `/run/user/1000` and the udev rules are
 unaffected by the name. The password is written through `chpasswd` from a
 temporary file, so it never appears in `ps`.
 
+Each stage removes the products it is about to write before it starts: the
+`debs` stage clears `debs/*.deb` and any `staging/pkg-*` trees, the `image`
+stage clears `debian.img` and `debian-sparse.img`. This is what keeps a rebuilt
+kernel from being mixed with packages or an image from the previous one —
+`build-image.sh` installs every `.deb` it finds in `debs/`, so a stale kernel
+package there would be installed alongside the new one. `./build.sh clean`
+does both without building anything, and refuses to delete an image that is
+still attached to a loop device or whose `mnt/` is mounted.
+
+`staging/kernel/`, `staging/firmware/` and `staging/device/` are inputs and are
+never touched: `staging/kernel/` must hold the `Image`, the DTBs for both board
+ids, `sm6225_defconfig` and `modules.tar.gz` of the kernel being packaged.
+
 ---
 
 ## Packages built
@@ -129,7 +143,7 @@ temporary file, so it never appears in `ps`.
 |---|---|
 | `firmware-xiaomi-tapas` | the whole `staging/firmware/usr` tree, plus an initramfs hook |
 | `device-xiaomi-tapas` | UCM profiles, udev rules, boot menu config |
-| `linux-image-tapas` | `Image`, DTB, config, initramfs |
+| `linux-image-tapas` | `Image`, both board DTBs, config, initramfs |
 | `linux-modules-tapas` | kernel modules |
 
 `firmware-xiaomi-tapas` depends on `qrtr-tools`, `rmtfs`, `tqftpserv`,
