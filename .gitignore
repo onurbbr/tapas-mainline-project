@@ -10,8 +10,10 @@ debs/
 # Vendor image dumps used for forensics; multi-gigabyte and not redistributable.
 images/
 
-# Disk image and loop-mount points.
+# Disk image and loop-mount points. The sparse variant is what build-image.sh
+# produces while assembling the rootfs.
 debian.img
+debian-sparse.img
 mnt/
 
 # Intermediate package trees created by build-debs.sh.
