@@ -396,6 +396,7 @@ build_device() {
     need_file "$ucm/tapas-HiFi.conf"
     need_file "$root/usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf"
     need_file "$root/usr/lib/udev/rules.d/70-tapas-camera.rules"
+    need_file "$root/usr/share/u-boot-menu/conf.d/tapas.conf"
 
     log "preparing device package: $DEVPKG ($DEV_VER)"
     rm -rf "$pkgdir"
@@ -411,7 +412,7 @@ Version: $DEV_VER
 Section: kernel
 Priority: optional
 Architecture: all
-Depends: alsa-ucm-conf, qcom-phone-utils, $FWPKG (= $FW_VER), $IMGPKG (= $KPKG_VER), $MODPKG (= $KPKG_VER)
+Depends: alsa-ucm-conf, qcom-phone-utils, u-boot-menu, $FWPKG (= $FW_VER), $IMGPKG (= $KPKG_VER), $MODPKG (= $KPKG_VER)
 Maintainer: $MAINTAINER
 Description: Device files for Xiaomi Redmi Note 12 4G (tapas)
  ALSA UCM config for SM6225, the camera udev rules and the boot menu
