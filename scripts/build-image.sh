@@ -164,22 +164,10 @@ log "Kernel: $KERNEL"
 log "Building initramfs (includes tapas-firmware hook)"
 chroot "$MNT" update-initramfs -c -k "$KERNEL"
 
-# --- 5) boot.scr + fstab + hostname + user ---------------------------------
-# boot.cmd in the repository is the only definition of the boot script: it
-# probes UFS and microSD, works out the root filesystem's UUID at boot time and
-# needs nothing filled in but the kernel version. Keeping a second copy here
-# is how the version ended up baked into the file in the first place.
-log "Writing boot.scr (root=UUID=$UUID, kernel: $KERNEL)"
-sed "s/__KERNEL__/$KERNEL/g" "$ROOT_DIR/boot.cmd" > "$MNT/boot/boot.cmd"
-if grep -q '__KERNEL__' "$MNT/boot/boot.cmd"; then
-    die "boot.cmd still carries __KERNEL__ after substitution"
-fi
-mkimage -C none -A arm64 -T script \
-    -d "$MNT/boot/boot.cmd" \
-    "$MNT/boot/boot.scr"
-rm "$MNT/boot/boot.cmd"
-log "boot.scr written (kernel: $KERNEL)"
-
+# --- 5) fstab + hostname + user --------------------------------------------
+# The boot menu is not written here. u-boot-menu generates it on the installed
+# system from the kernels that are present, so the image only has to contain
+# the kernel itself.
 log "Writing fstab"
 printf '# Debian - single ext4 rootfs\nUUID=%s / ext4 defaults 0 1\n' "$UUID" \
     | tee "$MNT/etc/fstab" >/dev/null
@@ -207,7 +195,6 @@ rm -f "$CRED_FILE"
 # --- 6) cleanup ------------------------------------------------------------
 log "Cleanup"
 rm -f "$MNT/usr/sbin/policy-rc.d"
-rm -rf "$MNT/boot/boot.cmd"
 rm -rf "$MNT/tmp/debs"
 chroot "$MNT" apt clean
 

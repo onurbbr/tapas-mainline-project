@@ -75,7 +75,6 @@ QUP instances.
 
 ```
 build.sh                  build the boot image / SD card
-boot.cmd                  U-Boot boot script source
 scripts/build-debs.sh     the package builder
 scripts/build-image.sh    image builder
 
