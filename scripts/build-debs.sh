@@ -126,8 +126,8 @@ build_image() {
              "$pkgdir/usr/share/doc/$IMGPKG"
 
     cp "$STAGING/kernel/Image"            "$pkgdir/boot/vmlinuz-$KVER"
-    # /boot/dtbs is where the boot script loads from; the second copy is the
-    # location update-initramfs and any future flash-kernel hook expect.
+    # /boot/dtbs is where the device trees have always been, kept because
+    # update-initramfs and any future flash-kernel hook expect it there.
     local dtb
     for dtb in "${DTBS[@]}"; do
         cp "$STAGING/kernel/$dtb"         "$pkgdir/boot/dtbs/"
