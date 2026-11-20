@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# scripts/build-debs.sh — Produces tapas kernel / firmware / device .deb packages.
+# scripts/build-debs.sh — Produces SM6225 kernel / firmware / device .deb packages.
 #
 # No compilation needed; packages artifacts already present under staging/.
 #
@@ -41,16 +41,16 @@ ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 # When updating, change ONLY this section.
 KVER="${KVER:-}"                  # uname -r; detected from modules.tar.gz when empty
 KPKG_VER="${KPKG_VER:-}"          # Debian package version; derived from KVER when empty
-FW_VER="20271019-2+tapas1"       # firmware-xiaomi-tapas Debian package version
-DEV_VER="0.1-1+tapas1"           # device-xiaomi-tapas Debian package version
+FW_VER="20271019-2+tapas1"       # firmware-xiaomi-sm6225 Debian package version
+DEV_VER="0.1-1+tapas1"           # device-xiaomi-sm6225 Debian package version
 # Every board id of this design gets its DTB installed: the bootloader picks
 # one by board id, and both live in the same package.
 DTBS=(sm6225-xiaomi-tapas.dtb sm6225-xiaomi-topaz.dtb)
 
-IMGPKG="linux-image-tapas"
-MODPKG="linux-modules-tapas"
-FWPKG="firmware-xiaomi-tapas"
-DEVPKG="device-xiaomi-tapas"
+IMGPKG="linux-image-sm6225"
+MODPKG="linux-modules-sm6225"
+FWPKG="firmware-xiaomi-sm6225"
+DEVPKG="device-xiaomi-sm6225"
 
 STAGING="${STAGING:-$ROOT_DIR/staging}"
 OUT="${OUT:-$ROOT_DIR/debs}"
@@ -145,7 +145,7 @@ Priority: optional
 Architecture: arm64
 Depends: $MODPKG (= $KPKG_VER), zstd, initramfs-tools
 Maintainer: $MAINTAINER
-Description: Mainline kernel image for Xiaomi Redmi Note 12 4G (tapas, SM6225)
+Description: Mainline kernel image for Xiaomi Redmi Note 12 4G / 4G NFC (SM6225)
  Mainline $KVER Image + the DTBs of both board ids (modules are in the
  $MODPKG package).
  For boot with U-Boot + extlinux.
@@ -200,7 +200,7 @@ Section: kernel
 Priority: optional
 Architecture: arm64
 Maintainer: $MAINTAINER
-Description: Kernel modules for Xiaomi Redmi Note 12 4G (tapas, SM6225)
+Description: Kernel modules for Xiaomi Redmi Note 12 4G / 4G NFC (SM6225)
  /lib/modules/$KVER (kernel image is in the $IMGPKG package).
 EOF
 
@@ -367,7 +367,7 @@ Architecture: all
 Depends: qrtr-tools, rmtfs, tqftpserv, protection-domain-mapper, libssc2
 Conflicts: firmware-atheros
 Maintainer: $MAINTAINER
-Description: Proprietary firmware blobs for Xiaomi Redmi Note 12 4G (tapas)
+Description: Proprietary firmware blobs for Xiaomi Redmi Note 12 4G / 4G NFC (SM6225)
  GPU zap, IPA, SQE, ADSP, CDSP, modem, Venus video, WCN3990 WLAN
  (board-2.bin + fw), WCN3950 BT (stock), audio topology and amp firmware
  for SM6225.
@@ -414,7 +414,7 @@ Priority: optional
 Architecture: all
 Depends: alsa-ucm-conf, qcom-phone-utils, u-boot-menu, $FWPKG (= $FW_VER), $IMGPKG (= $KPKG_VER), $MODPKG (= $KPKG_VER)
 Maintainer: $MAINTAINER
-Description: Device files for Xiaomi Redmi Note 12 4G (tapas)
+Description: Device files for Xiaomi Redmi Note 12 4G / 4G NFC (SM6225)
  ALSA UCM config for SM6225, the camera udev rules and the boot menu
  configuration.
 EOF

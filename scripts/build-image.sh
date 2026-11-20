@@ -52,7 +52,7 @@ esac
     || echo "WARNING: qemu-aarch64 binfmt not registered; second-stage may fail."
 
 # Verify debs/ is populated before doing any work.
-for p in device-xiaomi-tapas firmware-xiaomi-tapas linux-image-tapas linux-modules-tapas; do
+for p in device-xiaomi-sm6225 firmware-xiaomi-sm6225 linux-image-sm6225 linux-modules-sm6225; do
     ls "$DEBS"/${p}_*.deb >/dev/null 2>&1 \
         || die "Package $p not found in $DEBS/. Run 'build.sh debs' first."
 done
@@ -147,8 +147,8 @@ export DEBIAN_FRONTEND=noninteractive
 apt install -y phosh-phone phosh-full phosh-games-
 '
 
-# --- 4) tapas packages + initrd --------------------------------------------
-log "Installing tapas packages (kernel + modules + firmware + device)"
+# --- 4) SM6225 packages + initrd --------------------------------------------
+log "Installing SM6225 packages (kernel + modules + firmware + device)"
 cp -r "$DEBS" "$MNT/tmp/debs"
 chroot "$MNT" bash -c '
 set -e
@@ -158,7 +158,7 @@ apt install -y /tmp/debs/*.deb
 
 KERNEL=$(cd "$MNT/boot" && ls vmlinuz-* 2>/dev/null | head -1 | sed 's/^vmlinuz-//')
 [ -n "$KERNEL" ] \
-    || die "/boot/vmlinuz-* not found — was linux-image-tapas installed?"
+    || die "/boot/vmlinuz-* not found — was linux-image-sm6225 installed?"
 log "Kernel: $KERNEL"
 
 log "Building initramfs (includes tapas-firmware hook)"

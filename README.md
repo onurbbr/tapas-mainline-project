@@ -78,10 +78,10 @@ build.sh                  build the boot image / SD card
 scripts/build-debs.sh     the package builder
 scripts/build-image.sh    image builder
 
-staging/firmware/         install tree, copied verbatim into firmware-xiaomi-tapas
+staging/firmware/         install tree, copied verbatim into firmware-xiaomi-sm6225
   usr/lib/firmware/         ADSP/CDSP/modem, zap, IPA, ath10k, qca, venus, tplg
 
-staging/device/           install tree, copied verbatim into device-xiaomi-tapas
+staging/device/           install tree, copied verbatim into device-xiaomi-sm6225
   usr/lib/udev/rules.d/70-tapas-camera.rules
   usr/share/alsa/ucm2/Qualcomm/sm6225/tapas/
   usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf
@@ -140,14 +140,14 @@ ids, `sm6225_defconfig` and `modules.tar.gz` of the kernel being packaged.
 
 | Package | Contents |
 |---|---|
-| `firmware-xiaomi-tapas` | the whole `staging/firmware/usr` tree, plus an initramfs hook |
-| `device-xiaomi-tapas` | UCM profiles, udev rules, boot menu config |
-| `linux-image-tapas` | `Image`, both board DTBs, config, initramfs |
-| `linux-modules-tapas` | kernel modules |
+| `firmware-xiaomi-sm6225` | the whole `staging/firmware/usr` tree, plus an initramfs hook |
+| `device-xiaomi-sm6225` | UCM profiles, udev rules, boot menu config |
+| `linux-image-sm6225` | `Image`, both board DTBs, config, initramfs |
+| `linux-modules-sm6225` | kernel modules |
 
-`firmware-xiaomi-tapas` depends on `qrtr-tools`, `rmtfs`, `tqftpserv`,
+`firmware-xiaomi-sm6225` depends on `qrtr-tools`, `rmtfs`, `tqftpserv`,
 `protection-domain-mapper` and `libssc2`.
-`device-xiaomi-tapas` depends on `alsa-ucm-conf`, `qcom-phone-utils`,
+`device-xiaomi-sm6225` depends on `alsa-ucm-conf`, `qcom-phone-utils`,
 `u-boot-menu` and the three packages above.
 
 ### Building
