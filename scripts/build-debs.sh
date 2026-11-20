@@ -121,16 +121,16 @@ build_image() {
     log "preparing image package: $IMGPKG ($KPKG_VER)"
     rm -rf "$pkgdir"
     mkdir -p "$pkgdir/DEBIAN" \
-             "$pkgdir/boot/dtbs" \
+             "$pkgdir/boot" \
              "$pkgdir/usr/lib/linux-image-$KVER/qcom" \
              "$pkgdir/usr/share/doc/$IMGPKG"
 
     cp "$STAGING/kernel/Image"            "$pkgdir/boot/vmlinuz-$KVER"
-    # /boot/dtbs is where the device trees have always been, kept because
-    # update-initramfs and any future flash-kernel hook expect it there.
+    # The device trees live only in the distro location.  u-boot-update emits
+    # "fdtdir /usr/lib/linux-image-$KVER/" and U-Boot then appends $fdtfile,
+    # which is "qcom/sm6225-xiaomi-<board>.dtb"; /boot/dtbs is not consulted.
     local dtb
     for dtb in "${DTBS[@]}"; do
-        cp "$STAGING/kernel/$dtb"         "$pkgdir/boot/dtbs/"
         cp "$STAGING/kernel/$dtb"         "$pkgdir/usr/lib/linux-image-$KVER/qcom/"
     done
     cp "$STAGING/kernel/sm6225_defconfig" "$pkgdir/usr/share/doc/$IMGPKG/"
