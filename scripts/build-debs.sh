@@ -42,7 +42,7 @@ ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 # When updating, change ONLY this section.
 KVER="${KVER:-}"                  # uname -r; detected from modules.tar.gz when empty
 KPKG_VER="${KPKG_VER:-}"          # Debian package version; derived from KVER when empty
-FW_VER="20271019-2+tapas1"       # firmware-xiaomi-sm6225 Debian package version
+FW_VER="20271019-3+tapas1"       # firmware-xiaomi-sm6225 Debian package version
 DEV_VER="0.1-1+tapas1"           # device-xiaomi-sm6225 Debian package version
 # Every board id of this design gets its DTB installed: the bootloader picks
 # one by board id, and both live in the same package.
