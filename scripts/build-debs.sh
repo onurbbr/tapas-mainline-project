@@ -70,10 +70,13 @@ detect_kver_in_tarball() {
         | sed -E 's#^lib/modules/([^/]+)/?#\1#'
 }
 
-# The local version that kernelrelease appends through CONFIG_LOCALVERSION.
-LOCALVERSION_SUFFIX="-sm6225-upstream"
+# The local version kernelrelease appends through CONFIG_LOCALVERSION.  The
+# kernel is built with LOCALVERSION= on the make command line, which stops
+# scripts/setlocalversion from adding a "+" for a dirty tree, so the release is
+# exactly "<upstream version><this suffix>" and nothing else.
+LOCALVERSION_SUFFIX="-sm6225"
 
-# 7.4.0-rc1-sm6225-upstream+ -> 7.4.0-rc1-1+tapas1
+# 7.4.0-rc1-sm6225 -> 7.4.0-rc1-1+tapas1
 debver_from_kver() {
     local v="${1%"$LOCALVERSION_SUFFIX"*}"
     printf '%s-1+tapas1' "${v%+}"
