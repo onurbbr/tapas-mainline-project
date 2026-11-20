@@ -80,10 +80,17 @@ scripts/build-image.sh    image builder
 
 staging/firmware/         install tree, copied verbatim into firmware-xiaomi-sm6225
   usr/lib/firmware/         ADSP/CDSP/modem, zap, IPA, ath10k, qca, venus, tplg
+  hexagonrpcd.tar           Snapdragon Sensor Core payload (acdb, dsp,
+                            sensors, socinfo); unpacked into
+                            usr/share/qcom/sm6225/Xiaomi/tapas at package
+                            time, the archive itself is never installed
 
 staging/device/           install tree, copied verbatim into device-xiaomi-sm6225
   usr/lib/udev/hwdb.d/61-gmobile-sm6225.hwdb
   usr/lib/udev/rules.d/70-tapas-camera.rules
+  usr/lib/udev/rules.d/99-tapas-sensors.rules
+  usr/lib/systemd/system/hexagonrpcd.service.d/tapas.conf
+  usr/lib/systemd/system/iio-sensor-proxy.service.d/tapas.conf
   usr/share/alsa/ucm2/Qualcomm/sm6225/tapas/
   usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf
   usr/share/u-boot-menu/conf.d/tapas.conf
@@ -141,15 +148,16 @@ ids, `sm6225_defconfig` and `modules.tar.gz` of the kernel being packaged.
 
 | Package | Contents |
 |---|---|
-| `firmware-xiaomi-sm6225` | the whole `staging/firmware/usr` tree, plus an initramfs hook |
-| `device-xiaomi-sm6225` | UCM profiles, udev rules, wakeup key policy, boot menu config |
+| `firmware-xiaomi-sm6225` | the whole `staging/firmware/usr` tree, the sensor payload unpacked from `hexagonrpcd.tar`, an initramfs hook |
+| `device-xiaomi-sm6225` | UCM profiles, udev rules, sensor drop-ins, wakeup key policy, boot menu config |
 | `linux-image-sm6225` | `Image`, both board DTBs, config, initramfs |
 | `linux-modules-sm6225` | kernel modules |
 
 `firmware-xiaomi-sm6225` depends on `qrtr-tools`, `rmtfs`, `tqftpserv`,
 `protection-domain-mapper` and `libssc2`.
-`device-xiaomi-sm6225` depends on `alsa-ucm-conf`, `qcom-phone-utils`,
-`u-boot-menu` and the three packages above.
+`device-xiaomi-sm6225` depends on `alsa-ucm-conf`, `hexagonrpcd`,
+`iio-sensor-proxy`, `qcom-phone-utils`, `u-boot-menu` and the three packages
+above.
 
 ### Building
 

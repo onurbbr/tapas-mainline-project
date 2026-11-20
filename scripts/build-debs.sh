@@ -16,6 +16,11 @@
 #                           qcom/{a630_sqe.fw, venus-6.0/, sm6225/{tplg,
 #                           XIAOMI/TAPAS/{zap, ipa_fws, adsp, cdsp, modem,
 #                           wlanmdsp, modem_pr/, *.jsn}}}}
+#                       plus hexagonrpcd.tar, the Snapdragon Sensor Core
+#                       payload (acdb, dsp, sensors, socinfo). It is unpacked
+#                       at package time into
+#                       usr/share/qcom/sm6225/Xiaomi/tapas and the archive
+#                       itself is never installed.
 #                       Where each blob ends up is decided when populating
 #                       staging/, not in this script.
 #                       NOTE: firmware-atheros is NOT used; this package replaces
@@ -27,7 +32,12 @@
 #                           Xiaomi-Redmi-Note-12-4G.conf  (relative symlink to
 #                           the tapas.conf above)
 #                         usr/lib/udev/rules.d/70-tapas-camera.rules
+#                         usr/lib/udev/rules.d/99-tapas-sensors.rules
 #                         usr/lib/udev/hwdb.d/61-gmobile-sm6225.hwdb
+#                         usr/lib/systemd/system/hexagonrpcd.service.d/
+#                           tapas.conf
+#                         usr/lib/systemd/system/iio-sensor-proxy.service.d/
+#                           tapas.conf
 #                         usr/share/u-boot-menu/conf.d/tapas.conf
 #                       As with firmware/, the layout is decided when populating
 #                       staging/, not in this script.
@@ -42,8 +52,8 @@ ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 # When updating, change ONLY this section.
 KVER="${KVER:-}"                  # uname -r; detected from modules.tar.gz when empty
 KPKG_VER="${KPKG_VER:-}"          # Debian package version; derived from KVER when empty
-FW_VER="20271019-3+tapas1"       # firmware-xiaomi-sm6225 Debian package version
-DEV_VER="0.1-1+tapas1"           # device-xiaomi-sm6225 Debian package version
+FW_VER="20271019-4+tapas1"       # firmware-xiaomi-sm6225 Debian package version
+DEV_VER="0.1-2+tapas1"           # device-xiaomi-sm6225 Debian package version
 # Every board id of this design gets its DTB installed: the bootloader picks
 # one by board id, and both live in the same package.
 DTBS=(sm6225-xiaomi-tapas.dtb sm6225-xiaomi-topaz.dtb)
@@ -293,13 +303,30 @@ build_firmware() {
              "$pkgdir/usr/share/doc/$FWPKG"
 
     # Reject stray top-level entries: the tree is copied as-is, so anything
-    # outside usr/ would end up in the package root.
+    # outside usr/ would end up in the package root. hexagonrpcd.tar is the
+    # one exception we know about; it is unpacked below and never installed.
     local stray
-    stray=$(find "$root" -mindepth 1 -maxdepth 1 ! -name usr -print)
+    stray=$(find "$root" -mindepth 1 -maxdepth 1 ! -name usr ! -name hexagonrpcd.tar -print)
     [[ -z "$stray" ]] || die "unexpected entry in staging/firmware: $stray"
 
     cp -a "$root/usr" "$pkgdir/"
     log "payload: $(find "$pkgdir/usr" -type f | wc -l) files, $(du -sh "$pkgdir/usr" | cut -f1)"
+
+    # Snapdragon Sensor Core payload, served to the ADSP by hexagonrpcd. It is
+    # kept as a tar so the hundreds of small registry files keep their exact
+    # bytes, and is unpacked here, at package time, into the prefix the daemon
+    # is pointed at. The archive holds a single top-level directory, hence
+    # --strip-components=1. -p restores the recorded modes.
+    local hexsrc="$root/hexagonrpcd.tar"
+    local hexdir="$pkgdir/usr/share/qcom/sm6225/Xiaomi/tapas"
+    need_file "$hexsrc"
+    mkdir -p "$hexdir"
+    tar -xpf "$hexsrc" -C "$hexdir" --strip-components=1
+    for d in acdb dsp sensors/config sensors/registry socinfo; do
+        [[ -d "$hexdir/$d" ]] || die "hexagonrpcd.tar is missing $d/"
+    done
+    need_file "$hexdir/sensors/sns_reg.conf"
+    log "sensor payload: $(find "$hexdir" -type f | wc -l) files, $(du -sh "$hexdir" | cut -f1)"
 
     # initramfs hook: the ADSP/modem/WLAN blobs have to be in the initramfs,
     # the GPU zap because the display may need it before root is mounted.
@@ -375,6 +402,9 @@ Description: Proprietary firmware blobs for Xiaomi Redmi Note 12 4G / 4G NFC (SM
  GPU zap, IPA, SQE, ADSP, CDSP, modem, Venus video, WCN3990 WLAN
  (board-2.bin + fw), WCN3950 BT (stock), audio topology and amp firmware
  for SM6225.
+ Also carries the Snapdragon Sensor Core payload (ACDB calibration, DSP
+ libraries, sensor config and registry, socinfo) that hexagonrpcd serves
+ to the ADSP.
  Replaces firmware-atheros; cannot be installed together.
  Includes initramfs-tools hook.
 EOF
@@ -402,10 +432,21 @@ build_device() {
     need_file "$root/usr/lib/udev/rules.d/70-tapas-camera.rules"
     need_file "$root/usr/lib/udev/hwdb.d/61-gmobile-sm6225.hwdb"
     need_file "$root/usr/share/u-boot-menu/conf.d/tapas.conf"
+    need_file "$root/usr/lib/udev/rules.d/99-tapas-sensors.rules"
+    need_file "$root/usr/lib/systemd/system/hexagonrpcd.service.d/tapas.conf"
+    need_file "$root/usr/lib/systemd/system/iio-sensor-proxy.service.d/tapas.conf"
 
     # 61-gmobile-sm6225.hwdb takes the volume keys off phoc's default wakeup
     # key list, so pressing them while the screen is off no longer counts as
     # user activity and cannot wake the display.
+
+    # The Snapdragon Sensor Core files: 99-tapas-sensors.rules advertises the
+    # SSC accelerometer and proximity drivers that iio-sensor-proxy's own rule
+    # leaves out and gives the accelerometer its mounting matrix;
+    # hexagonrpcd.service.d/tapas.conf points the daemon at the payload the
+    # firmware package installs; iio-sensor-proxy.service.d/tapas.conf orders
+    # the proxy behind the daemon, because the proxy probes each sensor only
+    # once and never retries.
 
     log "preparing device package: $DEVPKG ($DEV_VER)"
     rm -rf "$pkgdir"
@@ -421,12 +462,30 @@ Version: $DEV_VER
 Section: kernel
 Priority: optional
 Architecture: all
-Depends: alsa-ucm-conf, qcom-phone-utils, u-boot-menu, $FWPKG (= $FW_VER), $IMGPKG (= $KPKG_VER), $MODPKG (= $KPKG_VER)
+Depends: alsa-ucm-conf, hexagonrpcd, iio-sensor-proxy, qcom-phone-utils, u-boot-menu, $FWPKG (= $FW_VER), $IMGPKG (= $KPKG_VER), $MODPKG (= $KPKG_VER)
 Maintainer: $MAINTAINER
 Description: Device files for Xiaomi Redmi Note 12 4G / 4G NFC (SM6225)
- ALSA UCM config for SM6225, the camera udev rules, the wakeup key policy
- and the boot menu configuration.
+ ALSA UCM config for SM6225, the camera and sensor udev rules, the wakeup
+ key policy and the boot menu configuration.
 EOF
+
+    # hexagonrpcd runs as the fastrpc user and writes into the sensor
+    # registry while it announces the payload to the ADSP, but
+    # --root-owner-group installs the firmware tree as root:root. Hand the
+    # sensor directory over to that user once both packages are on disk.
+    # hexagonrpcd is a dependency, so its sysusers.d entry has already been
+    # applied when this runs.
+    cat > "$pkgdir/DEBIAN/postinst" <<'POSTINSTEOF'
+#!/bin/sh
+set -e
+
+if getent passwd fastrpc >/dev/null 2>&1; then
+    chown -R fastrpc:fastrpc /usr/share/qcom/sm6225/Xiaomi/tapas/sensors
+else
+    echo "device-xiaomi-sm6225: fastrpc user not found, sensor payload stays root-owned" >&2
+fi
+POSTINSTEOF
+    chmod 755 "$pkgdir/DEBIAN/postinst"
 
     mkdir -p "$OUT"
     dpkg-deb --root-owner-group --build "$pkgdir" "$OUT/${DEVPKG}_${DEV_VER}_all.deb"

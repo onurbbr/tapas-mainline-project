@@ -1,0 +1,23 @@
+# Xiaomi Redmi Note 12 4G (tapas) - Snapdragon Sensor Core over the ADSP
+#
+# iio-sensor-proxy 3.9 only advertises the SSC light and compass drivers in its
+# own udev rule, even though the binary also ships accelerometer and proximity
+# support. Advertise the two missing driver types for the ADSP FastRPC device,
+# otherwise those sensors are never discovered and the proxy reports
+# "No proximity sensor" for the whole session.
+#
+# The SSC accelerometer is mounted rotated 180 degrees in the plane of the
+# board relative to the handset frame, so both X and Y have to be inverted.
+# Raw readings measured on the device (m/s2):
+#   lying on a desk, screen up      -> X = +0.6,  Y = +0.2,  Z = +9.90
+#   portrait, top edge up           -> X = -0.3,  Y = +9.87, Z = +0.5
+#   landscape, top edge to the left -> X = +9.86, Y = +0.0,  Z = +0.6
+# iio-sensor-proxy expects Y = -1g in portrait and X = -1g with the top edge on
+# the left (orientation.c maps atan2(x, ...) > 0 to left-up and atan2(y, ...)
+# > 0 to bottom-up), so both axes are inverted. Z is already correct.
+#
+# Inverting only Y leaves the matrix with a negative determinant, i.e. a
+# mirror: portrait ends up right but landscape comes out backwards. Flipping
+# both axes is a proper 180 degree rotation and keeps the two consistent.
+SUBSYSTEM=="misc", KERNEL=="fastrpc-adsp*", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel ssc-proximity"
+SUBSYSTEM=="misc", KERNEL=="fastrpc-adsp*", ENV{ACCEL_MOUNT_MATRIX}="-1,0,0;0,-1,0;0,0,1"
