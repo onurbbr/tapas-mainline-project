@@ -1,0 +1,28 @@
+# Wakeup key policy for the SM6225 Xiaomi boards (tapas and topaz).
+#
+# phoc treats every key of every keyboard as a wakeup key by default, so
+# pressing a volume key while the screen is off counts as user activity:
+# phoc notifies the idle notifier, gnome-settings-daemon sees the session
+# become active again and turns the display back on.  The keys themselves
+# are unaffected - they still reach the focused surface and still change
+# the volume while the screen is on.
+#
+# Keycodes are Linux event codes.  KEY_VOLUMEDOWN (114) comes from the
+# PMIC resin key, KEY_VOLUMEUP (115) from the TLMM gpio-keys device.  The
+# power key is deliberately left alone: it lives on pm8941_pwrkey and
+# keeps its default, so it still wakes the device.
+#
+# The match format is documented in gmobile.udev(5); this file is read by
+# the udev rule in /usr/lib/udev/rules.d/61-gmobile.rules (libgmobile-common).
+
+gmobile:name:gpio-keys:dt:xiaomi,tapas*
+ GM_WAKEUP_KEY_115=0
+
+gmobile:name:pm8941_resin:dt:xiaomi,tapas*
+ GM_WAKEUP_KEY_114=0
+
+gmobile:name:gpio-keys:dt:xiaomi,topaz*
+ GM_WAKEUP_KEY_115=0
+
+gmobile:name:pm8941_resin:dt:xiaomi,topaz*
+ GM_WAKEUP_KEY_114=0

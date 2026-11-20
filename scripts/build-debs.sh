@@ -27,6 +27,7 @@
 #                           Xiaomi-Redmi-Note-12-4G.conf  (relative symlink to
 #                           the tapas.conf above)
 #                         usr/lib/udev/rules.d/70-tapas-camera.rules
+#                         usr/lib/udev/hwdb.d/61-gmobile-sm6225.hwdb
 #                         usr/share/u-boot-menu/conf.d/tapas.conf
 #                       As with firmware/, the layout is decided when populating
 #                       staging/, not in this script.
@@ -399,7 +400,12 @@ build_device() {
     need_file "$ucm/tapas-HiFi.conf"
     need_file "$root/usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf"
     need_file "$root/usr/lib/udev/rules.d/70-tapas-camera.rules"
+    need_file "$root/usr/lib/udev/hwdb.d/61-gmobile-sm6225.hwdb"
     need_file "$root/usr/share/u-boot-menu/conf.d/tapas.conf"
+
+    # 61-gmobile-sm6225.hwdb takes the volume keys off phoc's default wakeup
+    # key list, so pressing them while the screen is off no longer counts as
+    # user activity and cannot wake the display.
 
     log "preparing device package: $DEVPKG ($DEV_VER)"
     rm -rf "$pkgdir"
@@ -418,8 +424,8 @@ Architecture: all
 Depends: alsa-ucm-conf, qcom-phone-utils, u-boot-menu, $FWPKG (= $FW_VER), $IMGPKG (= $KPKG_VER), $MODPKG (= $KPKG_VER)
 Maintainer: $MAINTAINER
 Description: Device files for Xiaomi Redmi Note 12 4G / 4G NFC (SM6225)
- ALSA UCM config for SM6225, the camera udev rules and the boot menu
- configuration.
+ ALSA UCM config for SM6225, the camera udev rules, the wakeup key policy
+ and the boot menu configuration.
 EOF
 
     mkdir -p "$OUT"
