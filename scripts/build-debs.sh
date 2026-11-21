@@ -38,6 +38,11 @@
 #                           tapas.conf
 #                         usr/lib/systemd/system/iio-sensor-proxy.service.d/
 #                           tapas.conf
+#                         usr/lib/systemd/system/sensor-stack-ready.service
+#                         usr/lib/systemd/system/greetd.service.d/
+#                           sensor-stack-ready.conf
+#                         usr/lib/systemd/system/graphical.target.wants/
+#                           sensor-stack-ready.service  (relative symlink)
 #                         usr/share/u-boot-menu/conf.d/tapas.conf
 #                       As with firmware/, the layout is decided when populating
 #                       staging/, not in this script.
@@ -53,7 +58,7 @@ ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 KVER="${KVER:-}"                  # uname -r; detected from modules.tar.gz when empty
 KPKG_VER="${KPKG_VER:-}"          # Debian package version; derived from KVER when empty
 FW_VER="20271019-4+tapas1"       # firmware-xiaomi-sm6225 Debian package version
-DEV_VER="0.1-2+tapas1"           # device-xiaomi-sm6225 Debian package version
+DEV_VER="0.1-3+tapas1"           # device-xiaomi-sm6225 Debian package version
 # Every board id of this design gets its DTB installed: the bootloader picks
 # one by board id, and both live in the same package.
 DTBS=(sm6225-xiaomi-tapas.dtb sm6225-xiaomi-topaz.dtb)
@@ -435,6 +440,9 @@ build_device() {
     need_file "$root/usr/lib/udev/rules.d/99-tapas-sensors.rules"
     need_file "$root/usr/lib/systemd/system/hexagonrpcd.service.d/tapas.conf"
     need_file "$root/usr/lib/systemd/system/iio-sensor-proxy.service.d/tapas.conf"
+    need_file "$root/usr/lib/systemd/system/sensor-stack-ready.service"
+    need_file "$root/usr/lib/systemd/system/greetd.service.d/sensor-stack-ready.conf"
+    need_file "$root/usr/lib/systemd/system/graphical.target.wants/sensor-stack-ready.service"
 
     # 61-gmobile-sm6225.hwdb takes the volume keys off phoc's default wakeup
     # key list, so pressing them while the screen is off no longer counts as
@@ -447,7 +455,15 @@ build_device() {
     # firmware package installs; iio-sensor-proxy.service.d/tapas.conf orders
     # the proxy behind the daemon, because the proxy probes each sensor only
     # once and never retries.
-
+    #
+    # Even behind the daemon the proxy can run its single discovery pass while
+    # the DSP is still setting up, and it then keeps a partial sensor set for
+    # the whole session. sensor-stack-ready.service waits for the proxy to
+    # report both the accelerometer and the ambient light sensor and restarts
+    # it when it came up too early. graphical.target is ordered after that
+    # unit, and greetd.service.d/tapas.conf orders the greeter behind it as
+    # well, because graphical.target pulling greetd in directly would
+    # otherwise start phosh side by side with the gate.
     log "preparing device package: $DEVPKG ($DEV_VER)"
     rm -rf "$pkgdir"
     mkdir -p "$pkgdir/DEBIAN"
@@ -475,6 +491,11 @@ EOF
     # sensor directory over to that user once both packages are on disk.
     # hexagonrpcd is a dependency, so its sysusers.d entry has already been
     # applied when this runs.
+    #
+    # The new units and the graphical.target.wants symlink are only read on
+    # the next reload, and the package carries no dh_installsystemd helper to
+    # do it, so ask systemd here. Inside a chroot (image build) systemd is not
+    # running and the unit database is built from disk at the first boot.
     cat > "$pkgdir/DEBIAN/postinst" <<'POSTINSTEOF'
 #!/bin/sh
 set -e
@@ -483,6 +504,10 @@ if getent passwd fastrpc >/dev/null 2>&1; then
     chown -R fastrpc:fastrpc /usr/share/qcom/sm6225/Xiaomi/tapas/sensors
 else
     echo "device-xiaomi-sm6225: fastrpc user not found, sensor payload stays root-owned" >&2
+fi
+
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
 fi
 POSTINSTEOF
     chmod 755 "$pkgdir/DEBIAN/postinst"

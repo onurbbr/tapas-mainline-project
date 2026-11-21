@@ -91,6 +91,9 @@ staging/device/           install tree, copied verbatim into device-xiaomi-sm622
   usr/lib/udev/rules.d/99-tapas-sensors.rules
   usr/lib/systemd/system/hexagonrpcd.service.d/tapas.conf
   usr/lib/systemd/system/iio-sensor-proxy.service.d/tapas.conf
+  usr/lib/systemd/system/sensor-stack-ready.service
+  usr/lib/systemd/system/greetd.service.d/sensor-stack-ready.conf
+  usr/lib/systemd/system/graphical.target.wants/sensor-stack-ready.service
   usr/share/alsa/ucm2/Qualcomm/sm6225/tapas/
   usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf
   usr/share/u-boot-menu/conf.d/tapas.conf
@@ -213,6 +216,26 @@ ExecStartPre=/bin/sleep 5
 
 This is shipped as `iio-sensor-proxy-tapas.conf`. Without the `sleep 5` the two
 start ~10 ms apart and proximity is lost for the whole session.
+
+A fixed sleep is only a guess, though, and the proxy can still get its single
+discovery pass in while the DSP is setting up. When that happens it keeps a
+partial sensor set for the whole session, and phosh builds its rotation
+manager and ambient brightness handler from that partial answer -- so rotation
+and automatic brightness are there on one boot and missing on the next.
+
+`sensor-stack-ready.service` closes that hole. It is a oneshot unit ordered
+`Before=graphical.target` and pulled in by `graphical.target.wants/`; the wait
+loop is written inline in its `ExecStart=`, so aside from the unit itself the
+package ships no helper script. Ordering
+alone is not enough, though: `graphical.target` wants `greetd.service`
+directly, so both jobs start side by side and the target is only "reached"
+once they have finished. The greeter therefore gets its own drop-in,
+`greetd.service.d/sensor-stack-ready.conf`, that orders it behind the gate. The script behind it waits for the
+proxy to report both `HasAccelerometer` and `HasAmbientLight` on the system
+bus, restarting `iio-sensor-proxy` (which re-runs its discovery pass) when
+either is missing, up to six times. It gives up after that and lets the boot
+continue, so a board with a dead sensor stack still comes up, just without
+rotation and automatic brightness.
 
 ---
 

@@ -1,0 +1,31 @@
+[Unit]
+Description=Wait for the Snapdragon Sensor Core sensors
+Documentation=file:///usr/share/doc/device-xiaomi-sm6225/README.Debian
+# iio-sensor-proxy probes every sensor exactly once, at startup, and drops a
+# driver for the rest of the session when that single discovery pass fails.
+# The proxy is pulled in by the FastRPC ADSP device unit, which appears as soon
+# as the remoteproc is up, while the DSP side needs hexagonrpcd and a few
+# seconds of reverse tunnel setup before it answers. Depending on how those two
+# line up the proxy ends up with all sensors, with some of them, or with none,
+# and it never looks again.
+#
+# phosh builds its rotation manager and its ambient brightness handler from
+# whatever the proxy reports at that moment, so a partial answer costs
+# automatic rotation and automatic brightness for the whole session. Wait for
+# the sensors themselves here, before the greeter runs, and restart the proxy
+# whenever its single discovery pass ran too early.
+Wants=hexagonrpcd.service iio-sensor-proxy.service
+After=hexagonrpcd.service iio-sensor-proxy.service
+Before=graphical.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Bounded on purpose: a board whose sensor stack stays dead still boots, just
+# without automatic rotation and automatic brightness. Six attempts of up to
+# eight seconds each, plus the restart in between.
+TimeoutStartSec=180
+ExecStart=/bin/sh -c 'prop="net.hadess.SensorProxy /net/hadess/SensorProxy net.hadess.SensorProxy"; ready() { [ "$$(/usr/bin/busctl --system get-property $$prop HasAccelerometer)" = "b true" ] && [ "$$(/usr/bin/busctl --system get-property $$prop HasAmbientLight)" = "b true" ]; }; /usr/bin/systemctl start iio-sensor-proxy.service; i=0; while [ $$i -lt 6 ]; do i=$$((i + 1)); n=0; while [ $$n -lt 16 ]; do if ready; then echo "sensors ready (attempt $$i)"; exit 0; fi; sleep 0.5; n=$$((n + 1)); done; echo "attempt $$i: sensors missing, restarting the proxy"; /usr/bin/systemctl restart iio-sensor-proxy.service; done; echo "sensor stack did not come up, continuing without it"; exit 0'
+
+[Install]
+WantedBy=graphical.target
