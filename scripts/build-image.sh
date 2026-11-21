@@ -147,7 +147,18 @@ export DEBIAN_FRONTEND=noninteractive
 apt install -y phosh-phone phosh-full phosh-games-
 '
 
-# --- 4) SM6225 packages + initrd --------------------------------------------
+# --- 4) fstab ---------------------------------------------------------------
+# This has to happen before the kernel packages below.  Their postinst runs
+# u-boot-update, which takes the root= argument from /etc/fstab and, finding
+# no "/" entry, falls back to /proc/cmdline.  In a chroot that is the build
+# host's command line, so the image would boot with the host's root UUID.
+log "Writing fstab"
+printf '# Debian - single ext4 rootfs\nUUID=%s / ext4 defaults 0 1\n' "$UUID" \
+    | tee "$MNT/etc/fstab" >/dev/null
+
+echo debian | tee "$MNT/etc/hostname" >/dev/null
+
+# --- 5) SM6225 packages + initrd --------------------------------------------
 log "Installing SM6225 packages (kernel + modules + firmware + device)"
 cp -r "$DEBS" "$MNT/tmp/debs"
 chroot "$MNT" bash -c '
@@ -164,16 +175,18 @@ log "Kernel: $KERNEL"
 log "Building initramfs (includes tapas-firmware hook)"
 chroot "$MNT" update-initramfs -c -k "$KERNEL"
 
-# --- 5) fstab + hostname + user --------------------------------------------
+# The kernel postinst already ran u-boot-update, but at that point there was no
+# /boot/initrd.img-$KERNEL yet, and u-boot-update only writes the "initrd" line
+# when the file it names already exists.  Without a ramdisk the kernel has no
+# way to turn root=UUID=... into a device and panics.  Regenerate the menu now
+# that the initramfs is there.
+log "Updating the boot menu with the new initramfs"
+chroot "$MNT" u-boot-update
+
+# --- 6) user ----------------------------------------------------------------
 # The boot menu is not written here. u-boot-menu generates it on the installed
 # system from the kernels that are present, so the image only has to contain
 # the kernel itself.
-log "Writing fstab"
-printf '# Debian - single ext4 rootfs\nUUID=%s / ext4 defaults 0 1\n' "$UUID" \
-    | tee "$MNT/etc/fstab" >/dev/null
-
-echo debian | tee "$MNT/etc/hostname" >/dev/null
-
 log "Creating user $TAPAS_USER"
 # chpasswd reads user:password pairs from stdin. Feeding it from a file keeps
 # the password off the command line and out of ps, and leaves the quoting of
@@ -192,7 +205,20 @@ fi
 chroot "$MNT" chpasswd < "$CRED_FILE"
 rm -f "$CRED_FILE"
 
-# --- 6) cleanup ------------------------------------------------------------
+# --- 6b) boot menu check ----------------------------------------------------
+# The kernel postinst generates extlinux.conf.  Verify it points at the root
+# filesystem of this image and not at whatever fstab or cmdline it saw first.
+if [ -f "$MNT/boot/extlinux/extlinux.conf" ]; then
+    grep -q "root=UUID=${UUID}\b" "$MNT/boot/extlinux/extlinux.conf" \
+        || die "extlinux.conf does not use the image's root UUID ($UUID)"
+    grep -q "initrd /boot/initrd.img" "$MNT/boot/extlinux/extlinux.conf" \
+        || die "extlinux.conf loads no initramfs; the kernel cannot resolve root=UUID="
+    log "Boot menu: root=UUID=$UUID, initrd present"
+else
+    log "WARNING: no extlinux.conf in the image"
+fi
+
+# --- 7) cleanup ------------------------------------------------------------
 log "Cleanup"
 rm -f "$MNT/usr/sbin/policy-rc.d"
 rm -rf "$MNT/tmp/debs"
@@ -202,7 +228,7 @@ log "Unmounting"
 cleanup_mounts
 trap - EXIT
 
-# --- 7) sparse copy --------------------------------------------------------
+# --- 8) sparse copy --------------------------------------------------------
 # Convert the raw image to a sparse image so fastboot flash is faster and
 # the file takes up less space on disk.  cp --sparse=always reads zero-filled
 # blocks and punches holes instead of writing them, which is exactly what the
