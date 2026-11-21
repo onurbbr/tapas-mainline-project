@@ -99,6 +99,7 @@ staging/device/           install tree, copied verbatim into device-xiaomi-sm622
   usr/share/alsa/ucm2/Qualcomm/sm6225/tapas/
   usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf
   usr/share/u-boot-menu/conf.d/tapas.conf
+  usr/share/libcamera/ipa/simple/s5kjn1.yaml, ov08d10.yaml, s5k3l6.yaml
 
 docs/                     one document per subsystem, with the detail
   README.md               index: one row per subsystem, with its status
@@ -154,15 +155,15 @@ ids, `sm6225_defconfig` and `modules.tar.gz` of the kernel being packaged.
 | Package | Contents |
 |---|---|
 | `firmware-xiaomi-sm6225` | the whole `staging/firmware/usr` tree, the sensor payload unpacked from `hexagonrpcd.tar`, an initramfs hook |
-| `device-xiaomi-sm6225` | UCM profiles, udev rules, sensor drop-ins, wakeup key policy, boot menu config |
+| `device-xiaomi-sm6225` | UCM profiles, libcamera tuning, udev rules, sensor drop-ins, wakeup key policy, boot menu config |
 | `linux-image-sm6225` | `Image`, both board DTBs, config, initramfs |
 | `linux-modules-sm6225` | kernel modules |
 
 `firmware-xiaomi-sm6225` depends on `qrtr-tools`, `rmtfs`, `tqftpserv`,
 `protection-domain-mapper` and `libssc2`.
 `device-xiaomi-sm6225` depends on `alsa-ucm-conf`, `hexagonrpcd`,
-`iio-sensor-proxy`, `qcom-phone-utils`, `u-boot-menu` and the three packages
-above.
+`iio-sensor-proxy`, `libcamera-ipa`, `libcamera0.7`, `qcom-phone-utils`,
+`u-boot-menu` and the three packages above.
 
 ### Building
 

@@ -47,6 +47,8 @@
 #                         usr/lib/systemd/system/multi-user.target.wants/
 #                           sim-hotplug.service  (relative symlink)
 #                         usr/share/u-boot-menu/conf.d/tapas.conf
+#                         usr/share/libcamera/ipa/simple/s5kjn1.yaml,
+#                           ov08d10.yaml, s5k3l6.yaml
 #                       As with firmware/, the layout is decided when populating
 #                       staging/, not in this script.
 #
@@ -61,7 +63,7 @@ ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 KVER="${KVER:-}"                  # uname -r; detected from modules.tar.gz when empty
 KPKG_VER="${KPKG_VER:-}"          # Debian package version; derived from KVER when empty
 FW_VER="20271019-4+tapas1"       # firmware-xiaomi-sm6225 Debian package version
-DEV_VER="0.1-4+tapas1"           # device-xiaomi-sm6225 Debian package version
+DEV_VER="0.1-5+tapas1"           # device-xiaomi-sm6225 Debian package version
 # Every board id of this design gets its DTB installed: the bootloader picks
 # one by board id, and both live in the same package.
 DTBS=(sm6225-xiaomi-tapas.dtb sm6225-xiaomi-topaz.dtb)
@@ -448,6 +450,9 @@ build_device() {
     need_file "$root/usr/lib/systemd/system/graphical.target.wants/sensor-stack-ready.service"
     need_file "$root/usr/lib/systemd/system/sim-hotplug.service"
     need_file "$root/usr/lib/systemd/system/multi-user.target.wants/sim-hotplug.service"
+    need_file "$root/usr/share/libcamera/ipa/simple/s5kjn1.yaml"
+    need_file "$root/usr/share/libcamera/ipa/simple/ov08d10.yaml"
+    need_file "$root/usr/share/libcamera/ipa/simple/s5k3l6.yaml"
 
     # 61-gmobile-sm6225.hwdb takes the volume keys off phoc's default wakeup
     # key list, so pressing them while the screen is off no longer counts as
@@ -469,6 +474,15 @@ build_device() {
     # unit, and greetd.service.d/tapas.conf orders the greeter behind it as
     # well, because graphical.target pulling greetd in directly would
     # otherwise start phosh side by side with the gate.
+    #
+    # The libcamera tuning files are what make the cameras usable at all: the
+    # software ISP falls back to uncalibrated.yaml when the sensor has no
+    # file, and the result is a colour cast, a wrong black level and no white
+    # balance. They are generated from the vendor chromatix of this board
+    # with tools/go-chromatix2libcamera, taking the OFILM batch's tuning for
+    # the wide and ultra wide cameras and the AAC one for the front camera.
+    # Only the algorithms libcamera 0.7's simple IPA implements are written,
+    # because it rejects a tuning file that names one it does not know.
     #
     # sim-hotplug.service keeps the modem usable across a SIM swap. The modem
     # only reports a card to ModemManager once the AP has opened a UIM
@@ -494,11 +508,11 @@ Version: $DEV_VER
 Section: kernel
 Priority: optional
 Architecture: all
-Depends: alsa-ucm-conf, hexagonrpcd, iio-sensor-proxy, qcom-phone-utils, u-boot-menu, $FWPKG (= $FW_VER), $IMGPKG (= $KPKG_VER), $MODPKG (= $KPKG_VER)
+Depends: alsa-ucm-conf, hexagonrpcd, iio-sensor-proxy, libcamera-ipa, libcamera0.7, qcom-phone-utils, u-boot-menu, $FWPKG (= $FW_VER), $IMGPKG (= $KPKG_VER), $MODPKG (= $KPKG_VER)
 Maintainer: $MAINTAINER
 Description: Device files for Xiaomi Redmi Note 12 4G / 4G NFC (SM6225)
- ALSA UCM config for SM6225, the camera and sensor udev rules, the wakeup
- key policy and the boot menu configuration.
+ ALSA UCM config for SM6225, the libcamera tuning files and the camera and
+ sensor udev rules, the wakeup key policy and the boot menu configuration.
 EOF
 
     # hexagonrpcd runs as the fastrpc user and writes into the sensor
