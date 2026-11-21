@@ -1,0 +1,29 @@
+[Unit]
+Description=Re-arm the modem when a SIM card is inserted
+Documentation=file:///usr/share/doc/device-xiaomi-sm6225/README.Debian
+# The modem needs the AP to open a UIM provisioning session before it reports
+# the card to ModemManager: without one, QMI answers "GW primary session index
+# unknown" and ModemManager parks the modem at state failed/sim-missing.
+# qcom-phone-utils' qcom-modem-setup does that, but it runs once at boot, so
+# pulling the card and putting it back leaves the modem stranded - the modem
+# itself does report the insertion through UIM slot status indications, the
+# session is simply never re-opened.
+#
+# Wait for the indications instead of polling: qmicli blocks on the QMI
+# channel while it listens, so the unit idles at no measurable cost. A card
+# insertion is followed by a burst of identical indications, so the session is
+# checked before anything is done and the second one is a no-op.
+#
+# ModemManager then recovers by itself; the restart at the end only covers the
+# case where it already gave up and stopped re-probing.
+After=ModemManager.service qcom-modem-setup.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+# No printf here on purpose: its "%s" would be expanded as a systemd specifier.
+ExecStart=/bin/sh -c 'while true; do /usr/bin/qmicli --silent -pd qrtr://0 --uim-monitor-slot-status 2>/dev/null | while IFS= read -r line; do case "$$line" in *"Card status: present"*) status="$$(/usr/bin/qmicli --silent -pd qrtr://0 --uim-get-card-status 2>/dev/null)"; /usr/bin/echo "$$status" | /usr/bin/grep -q "Primary GW:.*session doesn.t exist" || continue; echo "SIM card present without a provisioning session, re-arming the modem"; /usr/bin/qcom-modem-setup >/dev/null 2>&1; sleep 5; if /usr/bin/mmcli -m any 2>/dev/null | /usr/bin/grep -q "failed reason:.*sim-missing"; then echo "ModemManager is still stuck at sim-missing, restarting it"; /usr/bin/systemctl restart ModemManager.service; sleep 20; fi ;; esac; done; sleep 5; done'
+
+[Install]
+WantedBy=multi-user.target

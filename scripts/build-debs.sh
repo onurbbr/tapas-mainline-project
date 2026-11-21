@@ -43,6 +43,9 @@
 #                           sensor-stack-ready.conf
 #                         usr/lib/systemd/system/graphical.target.wants/
 #                           sensor-stack-ready.service  (relative symlink)
+#                         usr/lib/systemd/system/sim-hotplug.service
+#                         usr/lib/systemd/system/multi-user.target.wants/
+#                           sim-hotplug.service  (relative symlink)
 #                         usr/share/u-boot-menu/conf.d/tapas.conf
 #                       As with firmware/, the layout is decided when populating
 #                       staging/, not in this script.
@@ -58,7 +61,7 @@ ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 KVER="${KVER:-}"                  # uname -r; detected from modules.tar.gz when empty
 KPKG_VER="${KPKG_VER:-}"          # Debian package version; derived from KVER when empty
 FW_VER="20271019-4+tapas1"       # firmware-xiaomi-sm6225 Debian package version
-DEV_VER="0.1-3+tapas1"           # device-xiaomi-sm6225 Debian package version
+DEV_VER="0.1-4+tapas1"           # device-xiaomi-sm6225 Debian package version
 # Every board id of this design gets its DTB installed: the bootloader picks
 # one by board id, and both live in the same package.
 DTBS=(sm6225-xiaomi-tapas.dtb sm6225-xiaomi-topaz.dtb)
@@ -443,6 +446,8 @@ build_device() {
     need_file "$root/usr/lib/systemd/system/sensor-stack-ready.service"
     need_file "$root/usr/lib/systemd/system/greetd.service.d/sensor-stack-ready.conf"
     need_file "$root/usr/lib/systemd/system/graphical.target.wants/sensor-stack-ready.service"
+    need_file "$root/usr/lib/systemd/system/sim-hotplug.service"
+    need_file "$root/usr/lib/systemd/system/multi-user.target.wants/sim-hotplug.service"
 
     # 61-gmobile-sm6225.hwdb takes the volume keys off phoc's default wakeup
     # key list, so pressing them while the screen is off no longer counts as
@@ -464,6 +469,17 @@ build_device() {
     # unit, and greetd.service.d/tapas.conf orders the greeter behind it as
     # well, because graphical.target pulling greetd in directly would
     # otherwise start phosh side by side with the gate.
+    #
+    # sim-hotplug.service keeps the modem usable across a SIM swap. The modem
+    # only reports a card to ModemManager once the AP has opened a UIM
+    # provisioning session, which qcom-phone-utils' qcom-modem-setup does at
+    # boot and then never again: pulling the card and putting it back leaves
+    # QMI answering "GW primary session index unknown" and ModemManager stuck
+    # at failed/sim-missing. The unit listens for the modem's slot status
+    # indications instead of polling (qmicli blocks on the QMI channel while
+    # it waits, so the unit idles at no measurable cost) and re-runs
+    # qcom-modem-setup when a card shows up without a session.
+
     log "preparing device package: $DEVPKG ($DEV_VER)"
     rm -rf "$pkgdir"
     mkdir -p "$pkgdir/DEBIAN"

@@ -94,6 +94,8 @@ staging/device/           install tree, copied verbatim into device-xiaomi-sm622
   usr/lib/systemd/system/sensor-stack-ready.service
   usr/lib/systemd/system/greetd.service.d/sensor-stack-ready.conf
   usr/lib/systemd/system/graphical.target.wants/sensor-stack-ready.service
+  usr/lib/systemd/system/sim-hotplug.service
+  usr/lib/systemd/system/multi-user.target.wants/sim-hotplug.service
   usr/share/alsa/ucm2/Qualcomm/sm6225/tapas/
   usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf
   usr/share/u-boot-menu/conf.d/tapas.conf
@@ -236,6 +238,26 @@ bus, restarting `iio-sensor-proxy` (which re-runs its discovery pass) when
 either is missing, up to six times. It gives up after that and lets the boot
 continue, so a board with a dead sensor stack still comes up, just without
 rotation and automatic brightness.
+
+### Keeping the modem alive across a SIM swap
+
+The modem will not report a card to ModemManager on its own: the AP has to
+open a UIM provisioning session first. `qcom-phone-utils` ships
+`qcom-modem-setup`, which does exactly that, but it runs once at boot. Pull
+the card and put it back and the modem keeps answering "GW primary session
+index unknown", ModemManager parks itself at `failed`/`sim-missing`, and
+nothing re-opens the session until the next reboot or a manual
+`qcom-modem-setup`.
+
+`sim-hotplug.service` closes that gap. It does not poll: it runs
+`qmicli --uim-monitor-slot-status`, which blocks on the QMI channel and wakes
+only when the modem sends a slot status indication, so the unit costs no
+measurable CPU while idle. When an indication reports a card as present the
+unit checks whether a provisioning session exists and, if not, runs
+`qcom-modem-setup` again; ModemManager then recovers by itself. If it has
+already given up and stopped probing, the unit restarts it as a fallback.
+The link in `multi-user.target.wants/` starts the unit on every boot, since
+the very first card insertion after a boot needs it just as much.
 
 ---
 
