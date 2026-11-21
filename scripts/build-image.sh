@@ -124,8 +124,9 @@ apt install -y qrtr-tools rmtfs tqftpserv protection-domain-mapper alsa-ucm-conf
 apt install -y udisks2
 # alsa-utils for amixer and arecord, and for alsactl in /usr/sbin, which is not
 # on the default path; openssh-server so the device is reachable over the
-# network after a fresh flash, without a keyboard attached.
-apt install -y alsa-utils openssh-server
+# network after a fresh flash, without a keyboard attached; bash-completion so
+# the shell completes command and file names out of the box.
+apt install -y alsa-utils openssh-server bash-completion
 '
 
 log "Timezone + locale + keyboard (Europe/Istanbul, en_US.UTF-8, us/pc105)"
