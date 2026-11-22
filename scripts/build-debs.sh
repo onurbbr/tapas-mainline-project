@@ -62,8 +62,8 @@ ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 # When updating, change ONLY this section.
 KVER="${KVER:-}"                  # uname -r; detected from modules.tar.gz when empty
 KPKG_VER="${KPKG_VER:-}"          # Debian package version; derived from KVER when empty
-FW_VER="20271019-4+tapas1"       # firmware-xiaomi-sm6225 Debian package version
-DEV_VER="0.1-5+tapas1"           # device-xiaomi-sm6225 Debian package version
+FW_VER="2.0.209"                  # firmware-xiaomi-sm6225; the vendor build it carries
+DEV_VER="0.1-6"                   # device-xiaomi-sm6225 Debian package version
 # Every board id of this design gets its DTB installed: the bootloader picks
 # one by board id, and both live in the same package.
 DTBS=(sm6225-xiaomi-tapas.dtb sm6225-xiaomi-topaz.dtb)
@@ -97,10 +97,15 @@ detect_kver_in_tarball() {
 # exactly "<upstream version><this suffix>" and nothing else.
 LOCALVERSION_SUFFIX="-sm6225"
 
-# 7.4.0-rc1-sm6225 -> 7.4.0-rc1-1+tapas1
+# 7.4.0-rc1-sm6225 -> 7.4.0-rc1-1
+#
+# The trailing "-1" is the Debian revision of the package, not part of the
+# kernel version: it is what gets bumped when the same upstream release is
+# repackaged. Nothing board-specific belongs in the version, because the same
+# four packages serve both the tapas and the topaz board.
 debver_from_kver() {
     local v="${1%"$LOCALVERSION_SUFFIX"*}"
-    printf '%s-1+tapas1' "${v%+}"
+    printf '%s-1' "${v%+}"
 }
 
 # Fill in KVER and KPKG_VER from the build output, so that moving to a new
@@ -404,7 +409,7 @@ Package: $FWPKG
 Version: $FW_VER
 Section: kernel
 Priority: optional
-Architecture: all
+Architecture: arm64
 Depends: qrtr-tools, rmtfs, tqftpserv, protection-domain-mapper, libssc2
 Conflicts: firmware-atheros
 Maintainer: $MAINTAINER
@@ -420,8 +425,8 @@ Description: Proprietary firmware blobs for Xiaomi Redmi Note 12 4G / 4G NFC (SM
 EOF
 
     mkdir -p "$OUT"
-    dpkg-deb --root-owner-group --build "$pkgdir" "$OUT/${FWPKG}_${FW_VER}_all.deb"
-    log "produced: $OUT/${FWPKG}_${FW_VER}_all.deb"
+    dpkg-deb --root-owner-group --build "$pkgdir" "$OUT/${FWPKG}_${FW_VER}_arm64.deb"
+    log "produced: $OUT/${FWPKG}_${FW_VER}_arm64.deb"
 }
 
 # ------------------------------------------------------- device package ----
@@ -471,9 +476,9 @@ build_device() {
     # the whole session. sensor-stack-ready.service waits for the proxy to
     # report both the accelerometer and the ambient light sensor and restarts
     # it when it came up too early. graphical.target is ordered after that
-    # unit, and greetd.service.d/tapas.conf orders the greeter behind it as
-    # well, because graphical.target pulling greetd in directly would
-    # otherwise start phosh side by side with the gate.
+    # unit, and greetd.service.d/sensor-stack-ready.conf orders the greeter
+    # behind it as well, because graphical.target pulling greetd in directly
+    # would otherwise start phosh side by side with the gate.
     #
     # The libcamera tuning files are what make the cameras usable at all: the
     # software ISP falls back to uncalibrated.yaml when the sensor has no
@@ -505,9 +510,9 @@ build_device() {
     cat > "$pkgdir/DEBIAN/control" <<EOF
 Package: $DEVPKG
 Version: $DEV_VER
-Section: kernel
+Section: misc
 Priority: optional
-Architecture: all
+Architecture: arm64
 Depends: alsa-ucm-conf, hexagonrpcd, iio-sensor-proxy, libcamera-ipa, libcamera0.7, qcom-phone-utils, u-boot-menu, $FWPKG (= $FW_VER), $IMGPKG (= $KPKG_VER), $MODPKG (= $KPKG_VER)
 Maintainer: $MAINTAINER
 Description: Device files for Xiaomi Redmi Note 12 4G / 4G NFC (SM6225)
@@ -543,8 +548,8 @@ POSTINSTEOF
     chmod 755 "$pkgdir/DEBIAN/postinst"
 
     mkdir -p "$OUT"
-    dpkg-deb --root-owner-group --build "$pkgdir" "$OUT/${DEVPKG}_${DEV_VER}_all.deb"
-    log "produced: $OUT/${DEVPKG}_${DEV_VER}_all.deb"
+    dpkg-deb --root-owner-group --build "$pkgdir" "$OUT/${DEVPKG}_${DEV_VER}_arm64.deb"
+    log "produced: $OUT/${DEVPKG}_${DEV_VER}_arm64.deb"
 }
 
 # ----------------------------------------------------------------- main ---
@@ -567,8 +572,8 @@ esac
 log "outputs:"
 ls -lh "$OUT/${IMGPKG}_${KPKG_VER}_arm64.deb" \
        "$OUT/${MODPKG}_${KPKG_VER}_arm64.deb" \
-       "$OUT/${FWPKG}_${FW_VER}_all.deb" \
-       "$OUT/${DEVPKG}_${DEV_VER}_all.deb" 2>/dev/null || ls -lh "$OUT/"
+       "$OUT/${FWPKG}_${FW_VER}_arm64.deb" \
+       "$OUT/${DEVPKG}_${DEV_VER}_arm64.deb" 2>/dev/null || ls -lh "$OUT/"
 log "done."
 
 log "Cleaning up staging package dirs"
