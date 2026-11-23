@@ -198,10 +198,23 @@ chmod 600 "$CRED_FILE"
 
 # -u 1000 keeps the seat, /run/user/1000 and the udev rules working no matter
 # what the account is called.
+#
+# Debian gives an interactive first user this set, and every one of these
+# groups exists in a plain debootstrap: cdrom, floppy, sudo, audio, dip,
+# video, plugdev, users, netdev.
+#
+# input and render are added on top of it.  They are not strictly needed
+# today: udev hands /dev/dri/card* (root:video 0660), /dev/dri/renderD*
+# (root:render 0660) and /dev/input/event* (root:input 0660) to the user of
+# the *active seat session* through a uaccess ACL, and greetd opens such a
+# session for the session it starts.  The ACLs only cover a session that
+# logind knows about, though, so belonging to the groups keeps the devices
+# reachable for anything started outside it.  It does no harm otherwise.
+USER_GROUPS="cdrom,floppy,sudo,audio,dip,video,plugdev,users,netdev,input,render"
 if chroot "$MNT" id "$TAPAS_USER" >/dev/null 2>&1; then
-    chroot "$MNT" usermod -s /bin/bash -aG sudo "$TAPAS_USER"
+    chroot "$MNT" usermod -s /bin/bash -aG "$USER_GROUPS" "$TAPAS_USER"
 else
-    chroot "$MNT" useradd -m -u 1000 -s /bin/bash -G sudo "$TAPAS_USER"
+    chroot "$MNT" useradd -m -u 1000 -s /bin/bash -G "$USER_GROUPS" "$TAPAS_USER"
 fi
 chroot "$MNT" chpasswd < "$CRED_FILE"
 rm -f "$CRED_FILE"
