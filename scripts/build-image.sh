@@ -148,6 +148,28 @@ export DEBIAN_FRONTEND=noninteractive
 apt install -y phosh-phone phosh-full phosh-games-
 '
 
+# plymouth arrives as a Recommends of the desktop packages, and which theme it
+# draws is not decided by them: plymouth-theme-phosh registers phosh as the
+# default.plymouth alternative, but plymouth-set-default-theme looks at
+# /etc/plymouth/plymouthd.conf first, then /usr/share/plymouth/plymouthd.defaults,
+# and only then at the alternatives link.  Since plymouthd.defaults names
+# ceratopsian, that is what the initramfs hook copies, while the root
+# filesystem kept pointing at phosh.  The two disagreed and the image booted
+# with no splash at all.
+#
+# Stay with plymouth's own distribution default rather than the phosh
+# artwork, and state it in plymouthd.conf.  That file is carried into the
+# initramfs, it outranks both the alternatives link and plymouthd.defaults,
+# and it makes the hook copy exactly the theme plymouthd will load.
+log "Selecting the plymouth theme"
+chroot "$MNT" bash -c '
+set -e
+export DEBIAN_FRONTEND=noninteractive
+apt install -y plymouth plymouth-label
+mkdir -p /etc/plymouth
+printf "%s\n" "[Daemon]" "Theme=ceratopsian" > /etc/plymouth/plymouthd.conf
+'
+
 # --- 4) fstab ---------------------------------------------------------------
 # This has to happen before the kernel packages below.  Their postinst runs
 # u-boot-update, which takes the root= argument from /etc/fstab and, finding
@@ -183,6 +205,15 @@ chroot "$MNT" update-initramfs -c -k "$KERNEL"
 # that the initramfs is there.
 log "Updating the boot menu with the new initramfs"
 chroot "$MNT" u-boot-update
+
+# A phosh image without the gate boots into a shell that may keep
+# auto-rotation and automatic brightness hidden, which is the bug the unit
+# was added for in the first place.
+[ -e "$MNT/usr/lib/systemd/system/sensor-stack-ready.service" ] \
+    || die "sensor-stack-ready.service is missing; rebuild the packages"
+[ -e "$MNT/usr/lib/systemd/system/greetd.service.d/sensor-stack-ready.conf" ] \
+    || die "the greetd sensor drop-in is missing; rebuild the packages"
+log "Sensor gate present"
 
 # --- 6) user ----------------------------------------------------------------
 # The boot menu is not written here. u-boot-menu generates it on the installed
