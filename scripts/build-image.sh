@@ -192,6 +192,16 @@ export DEBIAN_FRONTEND=noninteractive
 apt install -y /tmp/debs/*.deb
 '
 
+# droid-juicer arrives as a Recommends of hexagonrpcd.  Its unit runs on the
+# first boot only, mounts the Android partitions, pulls the vendor blobs out of
+# them into /var/lib/droid-juicer and then reboots the phone.  This image
+# already carries those blobs in firmware-xiaomi-sm6225, so the extraction has
+# nothing left to do and the reboot is a surprise rather than a feature.  Mask
+# the unit and keep the package: hexagonrpcd still reads the directories it
+# fills, and a Recommends is not ours to drop.
+log "Disabling droid-juicer"
+chroot "$MNT" systemctl mask droid-juicer.service
+
 KERNEL=$(cd "$MNT/boot" && ls vmlinuz-* 2>/dev/null | head -1 | sed 's/^vmlinuz-//')
 [ -n "$KERNEL" ] \
     || die "/boot/vmlinuz-* not found — was linux-image-sm6225 installed?"
