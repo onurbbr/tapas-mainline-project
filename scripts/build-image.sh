@@ -121,7 +121,9 @@ export DEBIAN_FRONTEND=noninteractive
 apt update
 apt install -y initramfs-tools build-essential
 apt install -y qrtr-tools rmtfs tqftpserv protection-domain-mapper alsa-ucm-conf qcom-phone-utils zstd sudo
-apt install -y udisks2
+# dialog: the full-screen dialog(1) menus that a few console tools rely on;
+# nothing in the list above pulls it in.
+apt install -y udisks2 dialog
 # alsa-utils for amixer and arecord, and for alsactl in /usr/sbin, which is not
 # on the default path; openssh-server so the device is reachable over the
 # network after a fresh flash, without a keyboard attached; bash-completion so
