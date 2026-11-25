@@ -64,7 +64,7 @@ ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 KVER="${KVER:-}"                  # uname -r; detected from modules.tar.gz when empty
 KPKG_VER="${KPKG_VER:-}"          # Debian package version; derived from KVER when empty
 FW_VER="2.0.209-1"                  # firmware-xiaomi-sm6225; the vendor build it carries
-DEV_VER="0.1-9"                   # device-xiaomi-sm6225 Debian package version
+DEV_VER="0.1-10"                   # device-xiaomi-sm6225 Debian package version
 # Every board id of this design gets its DTB installed: the bootloader picks
 # one by board id, and both live in the same package.
 DTBS=(sm6225-xiaomi-tapas.dtb sm6225-xiaomi-topaz.dtb)
