@@ -29,8 +29,9 @@
 #                         usr/share/alsa/ucm2/Qualcomm/sm6225/tapas/{tapas.conf,
 #                           tapas-HiFi.conf}
 #                         usr/share/alsa/ucm2/conf.d/sm6225/
-#                           Xiaomi-Redmi-Note-12-4G.conf  (relative symlink to
+#                           Xiaomi-Redmi-Note-12.conf  (relative symlink to
 #                           the tapas.conf above)
+#                         etc/machine-info  (vendor, model, chassis for hostnamed)
 #                         usr/lib/udev/rules.d/70-tapas-camera.rules
 #                         usr/lib/udev/rules.d/99-tapas-sensors.rules
 #                         usr/lib/udev/hwdb.d/61-gmobile-sm6225.hwdb
@@ -62,8 +63,8 @@ ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 # When updating, change ONLY this section.
 KVER="${KVER:-}"                  # uname -r; detected from modules.tar.gz when empty
 KPKG_VER="${KPKG_VER:-}"          # Debian package version; derived from KVER when empty
-FW_VER="2.0.209"                  # firmware-xiaomi-sm6225; the vendor build it carries
-DEV_VER="0.1-8"                   # device-xiaomi-sm6225 Debian package version
+FW_VER="2.0.209-1"                  # firmware-xiaomi-sm6225; the vendor build it carries
+DEV_VER="0.1-9"                   # device-xiaomi-sm6225 Debian package version
 # Every board id of this design gets its DTB installed: the bootloader picks
 # one by board id, and both live in the same package.
 DTBS=(sm6225-xiaomi-tapas.dtb sm6225-xiaomi-topaz.dtb)
@@ -274,7 +275,7 @@ build_firmware() {
     for f in \
         aw87xxx_acf.bin \
         qcom/a630_sqe.fw \
-        qcom/sm6225/Xiaomi-Redmi-Note-12-4G-tplg.bin \
+        qcom/sm6225/Xiaomi-Redmi-Note-12-tplg.bin \
         qcom/venus-6.0/venus.mbn \
         qcom/sm6225/XIAOMI/TAPAS/a610_zap.mdt \
         qcom/sm6225/XIAOMI/TAPAS/a610_zap.elf \
@@ -360,7 +361,7 @@ esac
 # tapas (sm6225/XIAOMI/TAPAS) fixed firmware list.  Single-device package,
 # so no need to read soc/model from cmdline like qcom-firmware does.
 FW_LIST="aw87xxx_acf.bin
-qcom/sm6225/Xiaomi-Redmi-Note-12-4G-tplg.bin
+qcom/sm6225/Xiaomi-Redmi-Note-12-tplg.bin
 qcom/a630_sqe.fw
 qcom/venus-6.0/venus.mbn
 qcom/sm6225/XIAOMI/TAPAS/a610_zap.mdt
@@ -443,7 +444,7 @@ build_device() {
     # packaging bug, not a template to fill in.
     need_file "$ucm/tapas.conf"
     need_file "$ucm/tapas-HiFi.conf"
-    need_file "$root/usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf"
+    need_file "$root/usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12.conf"
     need_file "$root/usr/lib/udev/rules.d/70-tapas-camera.rules"
     need_file "$root/usr/lib/udev/hwdb.d/61-gmobile-sm6225.hwdb"
     need_file "$root/usr/share/u-boot-menu/conf.d/sm6225.conf"
@@ -458,6 +459,7 @@ build_device() {
     need_file "$root/usr/share/libcamera/ipa/simple/s5kjn1.yaml"
     need_file "$root/usr/share/libcamera/ipa/simple/ov08d10.yaml"
     need_file "$root/usr/share/libcamera/ipa/simple/s5k3l6.yaml"
+    need_file "$root/etc/machine-info"
 
     # 61-gmobile-sm6225.hwdb takes the volume keys off phoc's default wakeup
     # key list, so pressing them while the screen is off no longer counts as
@@ -505,7 +507,12 @@ build_device() {
 
     # The UCM alias is a relative symlink inside the tree, so a verbatim copy
     # keeps it intact and needs no recreate step here.
-    cp -a "$root/usr" "$pkgdir/"
+    #
+    # etc/machine-info is the only file outside usr/.  It carries the hardware
+    # identity, which hostnamed can only read from a DMI table on PCs; an
+    # ARM64 board has none, so without this file the settings dialogs and
+    # hostnamectl show an empty vendor and model.
+    cp -a "$root/usr" "$root/etc" "$pkgdir/"
 
     cat > "$pkgdir/DEBIAN/control" <<EOF
 Package: $DEVPKG

@@ -1,0 +1,10 @@
+# Written by device-xiaomi-sm6225.
+#
+# ARM64 systems have no DMI table, so systemd-hostnamed cannot read the
+# hardware identity from firmware the way it does on a PC, and hostnamectl
+# then reports no vendor and no model.  The values below come from the board
+# description in the device tree, which calls both the Redmi Note 12 and the
+# Redmi Note 12 NFC "Xiaomi Redmi Note 12", so one file serves both.
+HARDWARE_VENDOR=Xiaomi
+HARDWARE_MODEL=Redmi Note 12
+CHASSIS=handset
