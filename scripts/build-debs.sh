@@ -46,7 +46,7 @@
 #                         usr/lib/systemd/system/sim-hotplug.service
 #                         usr/lib/systemd/system/multi-user.target.wants/
 #                           sim-hotplug.service  (relative symlink)
-#                         usr/share/u-boot-menu/conf.d/tapas.conf
+#                         usr/share/u-boot-menu/conf.d/sm6225.conf
 #                         usr/share/libcamera/ipa/simple/s5kjn1.yaml,
 #                           ov08d10.yaml, s5k3l6.yaml
 #                       As with firmware/, the layout is decided when populating
@@ -63,7 +63,7 @@ ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 KVER="${KVER:-}"                  # uname -r; detected from modules.tar.gz when empty
 KPKG_VER="${KPKG_VER:-}"          # Debian package version; derived from KVER when empty
 FW_VER="2.0.209"                  # firmware-xiaomi-sm6225; the vendor build it carries
-DEV_VER="0.1-6"                   # device-xiaomi-sm6225 Debian package version
+DEV_VER="0.1-8"                   # device-xiaomi-sm6225 Debian package version
 # Every board id of this design gets its DTB installed: the bootloader picks
 # one by board id, and both live in the same package.
 DTBS=(sm6225-xiaomi-tapas.dtb sm6225-xiaomi-topaz.dtb)
@@ -446,7 +446,7 @@ build_device() {
     need_file "$root/usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf"
     need_file "$root/usr/lib/udev/rules.d/70-tapas-camera.rules"
     need_file "$root/usr/lib/udev/hwdb.d/61-gmobile-sm6225.hwdb"
-    need_file "$root/usr/share/u-boot-menu/conf.d/tapas.conf"
+    need_file "$root/usr/share/u-boot-menu/conf.d/sm6225.conf"
     need_file "$root/usr/lib/udev/rules.d/99-tapas-sensors.rules"
     need_file "$root/usr/lib/systemd/system/hexagonrpcd.service.d/tapas.conf"
     need_file "$root/usr/lib/systemd/system/iio-sensor-proxy.service.d/tapas.conf"

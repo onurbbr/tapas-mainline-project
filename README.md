@@ -98,7 +98,7 @@ staging/device/           install tree, copied verbatim into device-xiaomi-sm622
   usr/lib/systemd/system/multi-user.target.wants/sim-hotplug.service
   usr/share/alsa/ucm2/Qualcomm/sm6225/tapas/
   usr/share/alsa/ucm2/conf.d/sm6225/Xiaomi-Redmi-Note-12-4G.conf
-  usr/share/u-boot-menu/conf.d/tapas.conf
+  usr/share/u-boot-menu/conf.d/sm6225.conf
   usr/share/libcamera/ipa/simple/s5kjn1.yaml, ov08d10.yaml, s5k3l6.yaml
 
 docs/                     one document per subsystem, with the detail
